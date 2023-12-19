@@ -10,17 +10,17 @@ class State(typing.NamedTuple):
     log_length_scale: jax.Array
     log_noise_scale: jax.Array
 
-    @property
-    def amplitude_squared(self) -> jax.Array:
-        return jnp.exp(self.log_amplitude * 2)
 
-    @property
-    def length_scale(self) -> jax.Array:
-        return jnp.exp(self.log_length_scale)
+def amplitude_squared(state: State) -> jax.Array:
+    return jnp.exp(state.log_amplitude * 2)
 
-    @property
-    def noise_scale_squared(self) -> jax.Array:
-        return jnp.exp(self.log_noise_scale * 2)
+
+def length_scale(state: State) -> jax.Array:
+    return jnp.exp(state.log_length_scale)
+
+
+def noise_scale_squared(state: State) -> jax.Array:
+    return jnp.exp(state.log_noise_scale * 2)
 
 
 Kernel = Callable[[State, jax.Array, jax.Array], jax.Array]
@@ -34,8 +34,9 @@ def gaussian(state: State, xs: jax.Array, ys: jax.Array) -> jax.Array:
     differences = xs[:, None] - ys[None, :]
     squared_differences = jnp.square(differences)
     squared_distances = jnp.sum(squared_differences, axis=2)
-    return state.amplitude_squared * jnp.exp(
-        -squared_distances / jnp.square(2 * state.length_scale)
+
+    return amplitude_squared(state) * jnp.exp(
+        -squared_distances / jnp.square(2 * length_scale(state))
     )
 
 
@@ -49,5 +50,5 @@ def matern(state: State, xs: jax.Array, ys: jax.Array) -> jax.Array:
     xnorms_2 = xnorms_2 @ jnp.ones((1, ynorms_2.shape[0]))
     ynorms_2 = jnp.ones((xnorms_2.shape[0], 1)) @ ynorms_2.T
     tmp_calc = xnorms_2 + ynorms_2 - 2 * xs @ ys.T
-    tmp_calc = jnp.sqrt(3 * tmp_calc) / state.length_scale
-    return state.amplitude_squared * (1 + tmp_calc) * jnp.exp(-tmp_calc)
+    tmp_calc = jnp.sqrt(3 * tmp_calc) / length_scale(state)
+    return amplitude_squared(state) * (1 + tmp_calc) * jnp.exp(-tmp_calc)

@@ -5,6 +5,10 @@ from typing import Generator
 import jax.experimental
 
 
+def is_symmetric(matrix: jax.Array) -> bool:
+    return jnp.all(jnp.allclose(matrix, matrix.T)).item()
+
+
 @pytest.mark.parametrize("x64", [False, True], ids=["x32", "x64"])
 @pytest.mark.parametrize(
     "kernel",
@@ -45,3 +49,11 @@ class TestKernels:
         ys = jnp.array([[1, 2], [2, 3], [3, 4]], dtype=float)
         kernel_matrix = kernel(state, xs, ys)
         assert kernel_matrix.shape == (4, 3)
+
+    def test_call_result_is_symmetric(
+        self, kernel: kernels.Kernel, state: kernels.State
+    ) -> None:
+        xs = jnp.array([[1, 2], [2, 3], [3, 4], [4, 5]], dtype=float)
+        kernel_matrix = kernel(state, xs, xs)
+        assert kernel_matrix.shape == (len(xs), len(xs))
+        assert is_symmetric(kernel_matrix)

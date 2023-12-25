@@ -53,6 +53,23 @@ class NoisyObjectiveFunction[T: ObjectiveFunction](ObjectiveFunction):
         noisy_y = y + self._additional_gaussian_noise_std * noise
         return noisy_y
 
+    @property
+    def dataset_bounds(self) -> tuple[Boundary, ...]:
+        return self._objective_function.dataset_bounds
+
+    def plot(self, axis: matplotlib.axes.Axes, *xs: jax.Array) -> None:
+        self._objective_function.plot(axis, *xs)
+
+
+class JitObjectiveFunction[T: ObjectiveFunction](ObjectiveFunction):
+    def __init__(self, objective_function: T) -> None:
+        self._objective_function = objective_function
+        self._evaluate = jax.jit(self._objective_function.evaluate)
+
+    def evaluate(self, key: jax.Array, *xs: jax.Array) -> jax.Array:
+        return self._evaluate(key, *xs)
+
+    @property
     def dataset_bounds(self) -> tuple[Boundary, ...]:
         return self._objective_function.dataset_bounds
 

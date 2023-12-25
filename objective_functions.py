@@ -50,7 +50,7 @@ class NoisyObjectiveFunction[T: ObjectiveFunction](ObjectiveFunction):
         key, noise_key = jax.random.split(key)
         y = self._objective_function.evaluate(key, *xs)
         noise = jax.random.normal(noise_key, y.shape, y.dtype)
-        noisy_y = self._additional_gaussian_noise_std * noise + y
+        noisy_y = y + self._additional_gaussian_noise_std * noise
         return noisy_y
 
     def dataset_bounds(self) -> tuple[Boundary, ...]:

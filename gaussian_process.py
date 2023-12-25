@@ -10,21 +10,6 @@ class Dataset(typing.NamedTuple):
     ys: jax.Array
 
 
-def pertubate_covariance_matrix(
-    covariance_matrix: jax.Array, pertubation: jax.Array
-) -> jax.Array:
-    # Note: This function should only be used for with optimize.
-    if covariance_matrix.ndim != 2:
-        raise ValueError(
-            f"covariance_matrix.ndim must be 2. covariance_matrix.ndim: {covariance_matrix.ndim}"
-        )
-    if pertubation.ndim != 0:
-        raise ValueError(
-            f"pertubation.ndim must be 0. pertubation.ndim: {pertubation.ndim}"
-        )
-    return covariance_matrix + (pertubation * jnp.eye(len(covariance_matrix)))
-
-
 def get_negative_log_marginal_likelihood(
     covariance_matrix: jax.Array, ys: jax.Array
 ) -> jax.Array:
@@ -116,31 +101,72 @@ def sample(
     return jax.random.multivariate_normal(key, mean, covariance)
 
 
+def get_gradient_negative_log_marginal_likelihood(
+    kernel: kernels.Kernel,
+    state: kernels.State,
+    dataset: Dataset,
+) -> kernels.State:
+    K = kernel(state, dataset.xs, dataset.xs)
+    K_noise = K + kernels.noise_scale_squared(state) * jnp.identity(K.shape[0])
+    K_noise_inv = jnp.linalg.inv(K_noise)
+    y = dataset.ys
+    alpha = K_noise_inv.dot(y)
+    length_scale = kernels.length_scale(state)
+    sigma2_n = kernels.noise_scale_squared(state)
+
+    squared_distances = kernels.euclidean_squared_distance_matrix(
+        dataset.xs, dataset.xs
+    )
+    grad_log_length_scale = (-1.0 / (2.0 * length_scale**2)) * jnp.trace(
+        (alpha @ alpha.T - K_noise_inv) @ (squared_distances * K)
+    )
+    grad_log_sigma_n = -sigma2_n * jnp.trace((alpha @ alpha.T - K_noise_inv))
+    grad_log_sigma_f = -jnp.trace((alpha @ alpha.T - K_noise_inv) @ K)
+    return kernels.State(grad_log_sigma_f, grad_log_length_scale, grad_log_sigma_n)
+
+
 def optimize(
     kernel: kernels.Kernel,
     initial_state: kernels.State,
     dataset: Dataset,
     max_iterations: int,
     tolerance: float,
+    bounds: tuple[kernels.State, kernels.State],
+    use_auto_grad: bool = False,
     verbose: bool = False,
 ) -> tuple[kernels.State, jax.Array]:
-    optimizer = jaxopt.LBFGS(
-        lambda s: get_negative_log_marginal_likelihood(
-            kernel(
-                s,
-                dataset.xs,
-                dataset.xs,
-            ),
-            dataset.ys,
+    value = lambda s: get_negative_log_marginal_likelihood(
+        kernel(
+            s,
+            dataset.xs,
+            dataset.xs,
         ),
-        maxiter=max_iterations,
-        tol=tolerance,
-        verbose=verbose,
-    )
-    opt_step = optimizer.run(initial_state)
-    return opt_step.params, jnp.logical_and(
-        jnp.logical_not(opt_step.state.failed_linesearch),
-        jnp.isfinite(opt_step.state.error),
+        dataset.ys,
     )
 
+    def value_and_grad(s: kernels.State) -> tuple[jax.Array, kernels.State]:
+        return (
+            get_negative_log_marginal_likelihood(
+                kernel(
+                    s,
+                    dataset.xs,
+                    dataset.xs,
+                ),
+                dataset.ys,
+            ),
+            get_gradient_negative_log_marginal_likelihood(kernel, s, dataset),
+        )
 
+    kwargs = dict(
+        maxiter=max_iterations, tol=tolerance, verbose=verbose, history_size=1000
+    )
+    if use_auto_grad:
+        optimizer = jaxopt.LBFGSB(value, **kwargs)
+    else:
+        optimizer = jaxopt.LBFGSB(value_and_grad, value_and_grad=True, **kwargs)
+    opt_step = optimizer.run(
+        initial_state,
+        bounds,
+    )
+    ok = jnp.isfinite(opt_step.state.error)
+    return (opt_step.params, ok)

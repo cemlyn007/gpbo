@@ -53,17 +53,22 @@ def get_mean_and_covariance(
     dataset: Dataset,
     xs: jax.Array,
 ) -> tuple[jax.Array, jax.Array]:
-    covariance_matrix = kernel(state, dataset.xs, dataset.xs)
-    noised_covariance_matrix = covariance_matrix + (
-        kernels.noise_scale_squared(state) * jnp.identity(len(covariance_matrix))
+    noisy_kernel_dataset_dataset = kernel(state, dataset.xs, dataset.xs) + (
+        kernels.noise_scale_squared(state) * jnp.eye(dataset.xs.shape[0])
     )
-    l = jnp.linalg.cholesky(noised_covariance_matrix)
-    inv_matrix = jnp.linalg.inv(l.T) @ jnp.linalg.inv(l)
-    mean = kernel(state, dataset.xs, xs).T @ inv_matrix @ dataset.ys
-    cov = kernel(state, xs, xs) - kernel(state, dataset.xs, xs).T @ inv_matrix @ kernel(
-        state, dataset.xs, xs
+    kernel_dataset_xs = kernel(state, dataset.xs, xs)
+    kernel_dataset_xs_matmul_inverse_noisy_kernel_dataset_dataset = (
+        jax.scipy.linalg.solve(
+            noisy_kernel_dataset_dataset, kernel_dataset_xs, assume_a="pos"
+        ).T
     )
-    return mean, cov
+    mean = kernel_dataset_xs_matmul_inverse_noisy_kernel_dataset_dataset @ dataset.ys
+    kernel_xs_xs = kernel(state, xs, xs)
+    covariance = kernel_xs_xs - (
+        kernel_dataset_xs_matmul_inverse_noisy_kernel_dataset_dataset
+        @ kernel_dataset_xs
+    )
+    return mean, covariance
 
 
 def get_mean_and_variance(

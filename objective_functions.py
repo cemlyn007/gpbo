@@ -153,17 +153,27 @@ def sample(key: jax.Array, n: int, dataset_bounds: tuple[Boundary, ...]) -> jax.
     return xs
 
 
-def get_mesh_grid(boundary_ticks: Iterable[tuple[Boundary, int]]) -> list[jax.Array]:
+def get_ticks(
+    boundary: Boundary,
+    max_number_of_points: int,
+) -> jax.Array:
+    ticks = jnp.linspace(
+        boundary.min_value,
+        boundary.max_value,
+        max_number_of_points,
+        dtype=jax.dtypes.canonicalize_dtype(boundary.dtype),
+    )
+    # When using integer dtypes, you can end up with duplicate values.
+    ticks = jnp.unique(ticks)
+    return ticks
+
+
+def get_mesh_grid(
+    boundary_ticks: Iterable[tuple[Boundary, int]], sparse: bool
+) -> list[jax.Array]:
     """Note that when dealing with integer dtypes, the number of points is not guaranteed to be respected."""
-    list_grid_points = []
-    for boundary, number_of_points in boundary_ticks:
-        ticks = jnp.linspace(
-            boundary.min_value,
-            boundary.max_value,
-            number_of_points,
-            dtype=jax.dtypes.canonicalize_dtype(boundary.dtype),
-        )
-        # When using integer dtypes, you can end up with duplicate values.
-        ticks = jnp.unique(ticks)
-        list_grid_points.append(ticks)
-    return jnp.meshgrid(*list_grid_points, sparse=True)
+    grid_points = (
+        get_ticks(boundary, number_of_points)
+        for boundary, number_of_points in boundary_ticks
+    )
+    return jnp.meshgrid(*grid_points, sparse=sparse)

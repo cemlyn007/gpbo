@@ -129,6 +129,61 @@ def sample(
     return jax.random.multivariate_normal(key, mean, covariance)
 
 
+def get_signal_noise_ratio_loss(
+    state: kernels.State, max_snr_ratio: float
+) -> jax.Array:
+    """Adapted from https://infallible-thompson-49de36.netlify.app/#section-6.2.2"""
+    ratio = jnp.divide(jnp.exp(state.log_amplitude), jnp.exp(state.log_noise_scale))
+    snr_loss = jnp.power(jnp.divide(jnp.log(ratio), jnp.log(max_snr_ratio)), 50)
+    return snr_loss
+
+
+def get_gradient_signal_noise_ratio_loss(
+    state: kernels.State, max_snr_ratio: float
+) -> kernels.State:
+    """Adapted from https://infallible-thompson-49de36.netlify.app/#section-6.2.2"""
+    gradient_log_amplitude = (
+        jnp.divide(
+            50, jnp.multiply(jnp.log(max_snr_ratio), jnp.exp(state.log_amplitude))
+        )
+        * jnp.power(
+            jnp.divide(
+                jnp.log(
+                    jnp.divide(
+                        jnp.exp(state.log_amplitude), jnp.exp(state.log_noise_scale)
+                    )
+                ),
+                jnp.log(max_snr_ratio),
+            ),
+            49,
+        )
+        * jnp.exp(state.log_amplitude)
+    )
+    gradient_log_noise_scale = (
+        jnp.divide(
+            -50, jnp.multiply(jnp.log(max_snr_ratio), jnp.exp(state.log_noise_scale))
+        )
+        * jnp.power(
+            jnp.divide(
+                jnp.log(
+                    jnp.divide(
+                        jnp.exp(state.log_amplitude), jnp.exp(state.log_noise_scale)
+                    )
+                ),
+                jnp.log(max_snr_ratio),
+            ),
+            49,
+        )
+        * jnp.exp(state.log_noise_scale)
+    )
+    gradient = kernels.State(
+        gradient_log_amplitude,
+        jnp.zeros_like(state.log_length_scale),
+        gradient_log_noise_scale,
+    )
+    return gradient
+
+
 def optimize(
     kernel: kernels.Kernel,
     initial_state: kernels.State,
@@ -136,7 +191,7 @@ def optimize(
     max_iterations: int,
     tolerance: float,
     bounds: tuple[kernels.State, kernels.State],
-    penalty: float,
+    max_snr_ratio: float,
     use_auto_grad: bool = False,
     verbose: bool = False,
 ) -> tuple[kernels.State, jax.Array]:
@@ -149,10 +204,22 @@ def optimize(
             ),
             dataset.ys,
         )
-        if penalty > 0.0:
-            ratio = jnp.divide(jnp.exp(s.log_amplitude), jnp.exp(s.log_noise_scale))
-            penalty_amount = penalty * ratio
-            negative_log_marginal_likelihood += penalty_amount
+        if max_snr_ratio > 0.0:
+            snr_loss = get_signal_noise_ratio_loss(s, max_snr_ratio)
+            negative_log_marginal_likelihood += snr_loss
+
+        if verbose:
+            if max_snr_ratio > 0.0:
+                jax.debug.print(
+                    "state={state}\nsnr={snr}",
+                    state=s,
+                    snr=snr_loss,
+                )
+            else:
+                jax.debug.print(
+                    "state={state}",
+                    state=s,
+                )
         return negative_log_marginal_likelihood
 
     def value_and_grad(s: kernels.State) -> tuple[jax.Array, kernels.State]:
@@ -168,32 +235,34 @@ def optimize(
             lambda x: -x, get_gradient_log_marginal_likelihood(kernel, s, dataset)
         )
 
-        if verbose:
-            jax.debug.print(
-                "state={state}\ngradient={gradient}",
-                state=s,
-                gradient=gradient_negative_log_marginal_likelihood,
-            )
-
         loss = negative_log_marginal_likelihood
         gradient_loss = gradient_negative_log_marginal_likelihood
-        if penalty > 0.0:
-            ratio = jnp.divide(jnp.exp(s.log_amplitude), jnp.exp(s.log_noise_scale))
-            penalty_amount = penalty * ratio
-            penalty_gradient = jax.tree_map(
-                lambda x: x * penalty,
-                kernels.State(
-                    ratio,
-                    jnp.zeros_like(s.log_length_scale),
-                    -ratio,
-                ),
-            )
-            loss += penalty_amount
+        if max_snr_ratio > 0.0:
+            # https://infallible-thompson-49de36.netlify.app/#section-6.2.2
+            snr_loss = get_signal_noise_ratio_loss(s, max_snr_ratio)
+            gradient_snr_loss = get_gradient_signal_noise_ratio_loss(s, max_snr_ratio)
+            loss += snr_loss
             gradient_loss = jax.tree_map(
                 jnp.add,
                 gradient_loss,
-                penalty_gradient,
+                gradient_snr_loss,
             )
+
+        if verbose:
+            if max_snr_ratio > 0.0:
+                jax.debug.print(
+                    "state={state}\nsnr={snr}\ngradient_snr={gradient_snr}\ngradient={gradient}",
+                    state=s,
+                    snr=snr_loss,
+                    gradient_snr=gradient_snr_loss,
+                    gradient=gradient_negative_log_marginal_likelihood,
+                )
+            else:
+                jax.debug.print(
+                    "state={state}\ngradient={gradient}",
+                    state=s,
+                    gradient=gradient_negative_log_marginal_likelihood,
+                )
 
         return loss, gradient_loss
 

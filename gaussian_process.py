@@ -134,34 +134,74 @@ def optimize(
     max_iterations: int,
     tolerance: float,
     bounds: tuple[kernels.State, kernels.State],
+    penalty: float,
     use_auto_grad: bool = False,
     verbose: bool = False,
 ) -> tuple[kernels.State, jax.Array]:
-    value = lambda s: get_negative_log_marginal_likelihood(
-        kernel(
-            s,
-            dataset.xs,
-            dataset.xs,
-        ),
-        dataset.ys,
-    )
+    def value(s: kernels.State) -> jax.Array:
+        negative_log_marginal_likelihood = -get_log_marginal_likelihood(
+            kernel(
+                s,
+                dataset.xs,
+                dataset.xs,
+            ),
+            dataset.ys,
+        )
+        if penalty > 0.0:
+            ratio = jnp.divide(jnp.exp(s.log_amplitude), jnp.exp(s.log_noise_scale))
+            penalty_amount = penalty * ratio
+            negative_log_marginal_likelihood += penalty_amount
+        return negative_log_marginal_likelihood
 
     def value_and_grad(s: kernels.State) -> tuple[jax.Array, kernels.State]:
-        return (
-            get_negative_log_marginal_likelihood(
-                kernel(
-                    s,
-                    dataset.xs,
-                    dataset.xs,
-                ),
-                dataset.ys,
+        negative_log_marginal_likelihood = -get_log_marginal_likelihood(
+            kernel(
+                s,
+                dataset.xs,
+                dataset.xs,
             ),
-            get_gradient_negative_log_marginal_likelihood(kernel, s, dataset),
+            dataset.ys,
+        )
+        gradient_negative_log_marginal_likelihood = jax.tree_map(
+            lambda x: -x, get_gradient_log_marginal_likelihood(kernel, s, dataset)
         )
 
+        if verbose:
+            jax.debug.print(
+                "state={state}\ngradient={gradient}",
+                state=s,
+                gradient=gradient_negative_log_marginal_likelihood,
+            )
+
+        loss = negative_log_marginal_likelihood
+        gradient_loss = gradient_negative_log_marginal_likelihood
+        if penalty > 0.0:
+            ratio = jnp.divide(jnp.exp(s.log_amplitude), jnp.exp(s.log_noise_scale))
+            penalty_amount = penalty * ratio
+            penalty_gradient = jax.tree_map(
+                lambda x: x * penalty,
+                kernels.State(
+                    ratio,
+                    jnp.zeros_like(s.log_length_scale),
+                    -ratio,
+                ),
+            )
+            loss += penalty_amount
+            gradient_loss = jax.tree_map(
+                jnp.add,
+                gradient_loss,
+                penalty_gradient,
+            )
+
+        return loss, gradient_loss
+
     kwargs = dict(
-        maxiter=max_iterations, tol=tolerance, verbose=verbose, history_size=1000
+        maxiter=max_iterations,
+        tol=tolerance,
+        verbose=verbose,
+        history_size=max_iterations,
     )
+
     if use_auto_grad:
         optimizer = jaxopt.LBFGSB(value, **kwargs)
     else:

@@ -47,16 +47,18 @@ def get_gradient_log_marginal_likelihood(
         dataset.xs, dataset.xs
     )
 
-    # Gradient is hardcoded to Gaussian kernel:
-    grad_log_amplitude = jnp.trace((alpha @ alpha.T - K_noise_inv) @ K)
-    grad_log_length_scale = jnp.divide(
-        jnp.trace((alpha @ alpha.T - K_noise_inv) @ (squared_distances * K)),
-        jnp.square(length_scale),
-    )
-    grad_log_noise_scale = jnp.trace((alpha @ alpha.T - K_noise_inv) @ noise)
-    gradient = kernels.State(
-        grad_log_amplitude, grad_log_length_scale, grad_log_noise_scale
-    )
+    if kernel is kernels.gaussian:
+        grad_log_amplitude = jnp.trace((alpha @ alpha.T - K_noise_inv) @ K)
+        grad_log_length_scale = jnp.divide(
+            jnp.trace((alpha @ alpha.T - K_noise_inv) @ (squared_distances * K)),
+            jnp.square(length_scale),
+        )
+        grad_log_noise_scale = jnp.trace((alpha @ alpha.T - K_noise_inv) @ noise)
+        gradient = kernels.State(
+            grad_log_amplitude, grad_log_length_scale, grad_log_noise_scale
+        )
+    else:
+        raise NotImplementedError
     return gradient
 
 

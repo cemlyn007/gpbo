@@ -4,6 +4,9 @@ import kernels
 import jax.numpy as jnp
 import jaxopt
 
+# Covariance matrices are symmetric and positive semi-definite, so we can use the "pos" option.
+ASSUME_A = "pos"
+
 
 class Dataset(typing.NamedTuple):
     xs: jax.Array
@@ -20,9 +23,7 @@ def get_log_marginal_likelihood(covariance_matrix: jax.Array, ys: jax.Array):
 
     sign, slogdet = jnp.linalg.slogdet(covariance_matrix)
     return (
-        -0.5
-        * ys.T
-        @ jax.scipy.linalg.solve(covariance_matrix, ys, assume_a="pos", lower=True)
+        -0.5 * ys.T @ jax.scipy.linalg.solve(covariance_matrix, ys, assume_a=ASSUME_A)
         - 0.5 * sign * slogdet
     )
 
@@ -38,7 +39,7 @@ def get_gradient_log_marginal_likelihood(
     K_noise_inv = jnp.linalg.inv(K_noise)
     y = dataset.ys
 
-    alpha = jax.scipy.linalg.solve(K_noise, y, assume_a="pos", lower=True)
+    alpha = jax.scipy.linalg.solve(K_noise, y, assume_a=ASSUME_A)
 
     length_scale = kernels.length_scale(state)
 
@@ -70,8 +71,7 @@ def get_mean_and_covariance(
     )
     kernel_dataset_xs = kernel(state, dataset.xs, xs)
     solve_kwargs = dict(
-        assume_a="pos",
-        lower=True,
+        assume_a=ASSUME_A,
     )
     mean = kernel_dataset_xs.T @ jax.scipy.linalg.solve(
         noisy_kernel_dataset_dataset, dataset.ys, **solve_kwargs

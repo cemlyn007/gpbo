@@ -10,25 +10,20 @@ class Dataset(typing.NamedTuple):
     ys: jax.Array
 
 
-def get_negative_log_marginal_likelihood(
-    covariance_matrix: jax.Array, ys: jax.Array
-) -> jax.Array:
+def get_log_marginal_likelihood(covariance_matrix: jax.Array, ys: jax.Array):
     if covariance_matrix.ndim != 2:
         raise ValueError(
             f"covariance_matrix.ndim must be 2. covariance_matrix.ndim: {covariance_matrix.ndim}"
         )
     if ys.ndim != 1:
         raise ValueError(f"ys.ndim must be 1. ys.ndim: {ys.ndim}")
-    ys = jnp.expand_dims(ys, -1)
-    l = jnp.linalg.cholesky(covariance_matrix)
-    inv_L = jnp.linalg.inv(l)
-    inv_L_T = jnp.linalg.inv(l.T)
-    log_detK = jnp.sum(jnp.log(jnp.diag(l)))
-    yT_invM_y = jnp.squeeze(ys.T @ inv_L_T @ inv_L @ ys)
+
+    sign, slogdet = jnp.linalg.slogdet(covariance_matrix)
     return (
-        0.5 * yT_invM_y
-        + 0.5 * 2 * log_detK
-        + (len(covariance_matrix) / 2) * jnp.log(2 * jnp.pi)
+        -0.5
+        * ys.T
+        @ jax.scipy.linalg.solve(covariance_matrix, ys, assume_a="pos", lower=True)
+        - 0.5 * sign * slogdet
     )
 
 

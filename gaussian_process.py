@@ -37,16 +37,15 @@ def get_mean_and_covariance(
         kernels.noise_scale_squared(state) * jnp.eye(dataset.xs.shape[0])
     )
     kernel_dataset_xs = kernel(state, dataset.xs, xs)
-    kernel_dataset_xs_matmul_inverse_noisy_kernel_dataset_dataset = (
-        jax.scipy.linalg.solve(
-            noisy_kernel_dataset_dataset, kernel_dataset_xs, assume_a="pos"
-        ).T
+    solve_kwargs = dict(
+        assume_a="pos",
+        lower=True,
     )
-    mean = kernel_dataset_xs_matmul_inverse_noisy_kernel_dataset_dataset @ dataset.ys
-    kernel_xs_xs = kernel(state, xs, xs)
-    covariance = kernel_xs_xs - (
-        kernel_dataset_xs_matmul_inverse_noisy_kernel_dataset_dataset
-        @ kernel_dataset_xs
+    mean = kernel_dataset_xs.T @ jax.scipy.linalg.solve(
+        noisy_kernel_dataset_dataset, dataset.ys, **solve_kwargs
+    )
+    covariance = kernel(state, xs, xs) - kernel_dataset_xs.T @ jax.scipy.linalg.solve(
+        noisy_kernel_dataset_dataset, kernel_dataset_xs, **solve_kwargs
     )
     return mean, covariance
 

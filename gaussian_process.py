@@ -27,6 +27,38 @@ def get_log_marginal_likelihood(covariance_matrix: jax.Array, ys: jax.Array):
     )
 
 
+def get_gradient_log_marginal_likelihood(
+    kernel: kernels.Kernel,
+    state: kernels.State,
+    dataset: Dataset,
+) -> kernels.State:
+    K = kernel(state, dataset.xs, dataset.xs)
+    noise = kernels.noise_scale_squared(state) * jnp.identity(K.shape[0])
+    K_noise = K + noise
+    K_noise_inv = jnp.linalg.inv(K_noise)
+    y = dataset.ys
+
+    alpha = jax.scipy.linalg.solve(K_noise, y, assume_a="pos", lower=True)
+
+    length_scale = kernels.length_scale(state)
+
+    squared_distances = kernels.euclidean_squared_distance_matrix(
+        dataset.xs, dataset.xs
+    )
+
+    # Gradient is hardcoded to Gaussian kernel:
+    grad_log_amplitude = jnp.trace((alpha @ alpha.T - K_noise_inv) @ K)
+    grad_log_length_scale = jnp.divide(
+        jnp.trace((alpha @ alpha.T - K_noise_inv) @ (squared_distances * K)),
+        jnp.square(length_scale),
+    )
+    grad_log_noise_scale = jnp.trace((alpha @ alpha.T - K_noise_inv) @ noise)
+    gradient = kernels.State(
+        grad_log_amplitude, grad_log_length_scale, grad_log_noise_scale
+    )
+    return gradient
+
+
 def get_mean_and_covariance(
     kernel: kernels.Kernel,
     state: kernels.State,
@@ -93,38 +125,6 @@ def sample(
 ) -> jax.Array:
     mean, covariance = get_mean_and_covariance(kernel, state, dataset, xs)
     return jax.random.multivariate_normal(key, mean, covariance)
-
-
-def get_gradient_negative_log_marginal_likelihood(
-    kernel: kernels.Kernel,
-    state: kernels.State,
-    dataset: Dataset,
-) -> kernels.State:
-    K = kernel(state, dataset.xs, dataset.xs)
-    noise = kernels.noise_scale_squared(state) * jnp.identity(K.shape[0])
-    K_noise = K + noise
-    K_noise_inv = jnp.linalg.inv(K_noise)
-    y = dataset.ys
-
-    alpha = jax.scipy.linalg.solve(K_noise, y, assume_a="pos", lower=True)
-
-    length_scale = kernels.length_scale(state)
-
-    squared_distances = kernels.euclidean_squared_distance_matrix(
-        dataset.xs, dataset.xs
-    )
-
-    # Gradient is hardcoded to Gaussian kernel:
-    grad_log_amplitude = -jnp.trace((alpha @ alpha.T - K_noise_inv) @ K)
-    grad_log_length_scale = -jnp.divide(
-        jnp.trace((alpha @ alpha.T - K_noise_inv) @ (squared_distances * K)),
-        jnp.square(length_scale),
-    )
-    grad_log_noise_scale = -jnp.trace((alpha @ alpha.T - K_noise_inv) @ noise)
-    gradient = kernels.State(
-        grad_log_amplitude, grad_log_length_scale, grad_log_noise_scale
-    )
-    return gradient
 
 
 def optimize(

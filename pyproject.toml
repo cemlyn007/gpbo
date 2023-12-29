@@ -9,7 +9,7 @@ authors = [
   { name="Cemlyn Neil Waters", email="cemlynwater@gmail.com" },
 ]
 description = "JAX Gaussian Processes and Bayesian Optimization Library"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
 ]

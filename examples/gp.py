@@ -106,7 +106,9 @@ if __name__ == "__main__":
         elif arguments.objective_function == "six_hump_camel":
             objective_function = objective_functions.SixHumpCamelObjectiveFunction()
         else:
-            raise ValueError(f"Unknown objective function: {arguments.objective_function}")
+            raise ValueError(
+                f"Unknown objective function: {arguments.objective_function}"
+            )
 
         if arguments.noisy_objective_function > 0.0:
             objective_function = objective_functions.NoisyObjectiveFunction(
@@ -136,11 +138,16 @@ if __name__ == "__main__":
         )
 
         mesh_grid = objective_functions.get_mesh_grid(
-            [(boundary, arguments.plot_resolution) for boundary in objective_function.dataset_bounds],
+            [
+                (boundary, arguments.plot_resolution)
+                for boundary in objective_function.dataset_bounds
+            ],
             False,
         )
         ticks = tuple(
-            np.asarray(objective_functions.get_ticks(boundary, arguments.plot_resolution))
+            np.asarray(
+                objective_functions.get_ticks(boundary, arguments.plot_resolution)
+            )
             for boundary in objective_function.dataset_bounds
         )
         grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
@@ -206,11 +213,17 @@ if __name__ == "__main__":
                 mean, std = get_mean_and_std(kernel, state, dataset, grid_xs)
 
                 mean = np.asarray(
-                    mean.reshape((arguments.plot_resolution,) * len(objective_function.dataset_bounds))
+                    mean.reshape(
+                        (arguments.plot_resolution,)
+                        * len(objective_function.dataset_bounds)
+                    )
                 )
 
                 std = np.asarray(
-                    std.reshape((arguments.plot_resolution,) * len(objective_function.dataset_bounds))
+                    std.reshape(
+                        (arguments.plot_resolution,)
+                        * len(objective_function.dataset_bounds)
+                    )
                 )
                 std = np.where(np.isfinite(std), std, -1.0)
 

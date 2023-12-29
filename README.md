@@ -13,6 +13,11 @@ pip install .
 ## Development
 Clone the repository at `https://github.com/cemlyn007/gpbo` and run:
 ```pip install -e .[dev]```
+If using Visual Studio Code with Pylance, you will want to run instead:
+```
+pip install -e .[dev] --config-settings editable_mode=strict
+```
+To get the type hinter to find the package.
 
 # Examples
 ## Optimizing a Gaussian Process

@@ -10,28 +10,22 @@ class Dataset(typing.NamedTuple):
     ys: jax.Array
 
 
-def get_log_marginal_likelihood(covariance_matrix: jax.Array, ys: jax.Array):
+def get_log_marginal_likelihood(
+    covariance_matrix: jax.Array, ys: jax.Array
+) -> jax.Array:
     if covariance_matrix.ndim != 2:
         raise ValueError(
             f"covariance_matrix.ndim must be 2. covariance_matrix.ndim: {covariance_matrix.ndim}"
         )
     if ys.ndim != 1:
         raise ValueError(f"ys.ndim must be 1. ys.ndim: {ys.ndim}")
-
-    L = jax.scipy.linalg.cho_factor(covariance_matrix, lower=True)
-    solution = jax.scipy.linalg.cho_solve(L, ys)
-
-    # part_a = -0.5 * ys.T @ solution
-    part_a = -0.5 * jnp.dot(ys, solution)
-    assert part_a.shape == (), part_a.shape
-    sign, slogdet = jnp.linalg.slogdet(covariance_matrix, method="qr")
+    # Challenges for Gaussian processes - Imperial - Slide 5, Equation 7,
+    # contains more computationally efficient ways to compute the log marginal,
+    # that can be done using scipy cho_factor and cho_solve, however I found
+    # that this was not stable for my use case.
+    part_a = -0.5 * ys.T @ jnp.linalg.inv(covariance_matrix) @ ys
+    sign, slogdet = jnp.linalg.slogdet(covariance_matrix, method="lu")
     part_b = -0.5 * sign * slogdet
-    jax.debug.print(
-        "solution={solution}\npart_a={part_a}\npart_b={part_b}",
-        solution=jnp.max(solution),
-        part_a=part_a,
-        part_b=part_b,
-    )
     return part_a + part_b
 
 
@@ -42,7 +36,7 @@ def get_gradient_log_marginal_likelihood(
 ) -> kernels.State:
     K = kernel(state, dataset.xs, dataset.xs)
     identity = jnp.identity(K.shape[0])
-    noise = (kernels.noise_scale_squared(state) + 1e-3) * identity
+    noise = kernels.noise_scale_squared(state) * identity
     K_noise = K + noise
 
     L = jax.scipy.linalg.cho_factor(K_noise, lower=True)
@@ -215,7 +209,7 @@ def optimize(
                 dataset.xs,
                 dataset.xs,
             )
-            + (kernels.noise_scale_squared(s) + 1e-3) * jnp.eye(dataset.xs.shape[0]),
+            + kernels.noise_scale_squared(s) * jnp.eye(dataset.xs.shape[0]),
             dataset.ys,
         )
         if max_snr_ratio > 0.0:
@@ -225,13 +219,17 @@ def optimize(
         if verbose:
             if max_snr_ratio > 0.0:
                 jax.debug.print(
-                    "state={state}\nsnr={snr}",
+                    "state={state}\n"
+                    "negative_log_marginal_likelihood={negative_log_marginal_likelihood}\n"
+                    "snr={snr}\n",
                     state=s,
+                    negative_log_marginal_likelihood=negative_log_marginal_likelihood,
                     snr=snr_loss,
                 )
             else:
                 jax.debug.print(
-                    "state={state}\nnegative_log_marginal_likelihood={negative_log_marginal_likelihood}",
+                    "state={state}\n"
+                    "negative_log_marginal_likelihood={negative_log_marginal_likelihood}\n",
                     state=s,
                     negative_log_marginal_likelihood=negative_log_marginal_likelihood,
                 )
@@ -244,7 +242,7 @@ def optimize(
                 dataset.xs,
                 dataset.xs,
             )
-            + (kernels.noise_scale_squared(s) + 1e-3) * jnp.eye(dataset.xs.shape[0]),
+            + kernels.noise_scale_squared(s) * jnp.eye(dataset.xs.shape[0]),
             dataset.ys,
         )
         gradient_negative_log_marginal_likelihood = jax.tree_map(
@@ -267,18 +265,25 @@ def optimize(
         if verbose:
             if max_snr_ratio > 0.0:
                 jax.debug.print(
-                    "state={state}\nsnr={snr}\ngradient_snr={gradient_snr}\ngradient={gradient}\nnegative_log_marginal_likelihood={negative_log_marginal_likelihood}",
+                    "state={state}\n"
+                    "negative_log_marginal_likelihood={negative_log_marginal_likelihood}\n"
+                    "gradient_negative_log_marginal_likelihood={gradient_negative_log_marginal_likelihood}\n"
+                    "snr={snr}\n"
+                    "gradient_snr={gradient_snr}\n",
                     state=s,
+                    negative_log_marginal_likelihood=negative_log_marginal_likelihood,
+                    gradient_negative_log_marginal_likelihood=gradient_negative_log_marginal_likelihood,
                     snr=snr_loss,
                     gradient_snr=gradient_snr_loss,
-                    gradient=gradient_negative_log_marginal_likelihood,
-                    negative_log_marginal_likelihood=negative_log_marginal_likelihood,
                 )
             else:
                 jax.debug.print(
-                    "state={state}\ngradient={gradient}",
+                    "state={state}\n"
+                    "negative_log_marginal_likelihood={negative_log_marginal_likelihood}\n"
+                    "gradient_negative_log_marginal_likelihood={gradient_negative_log_marginal_likelihood}\n",
                     state=s,
-                    gradient=gradient_negative_log_marginal_likelihood,
+                    negative_log_marginal_likelihood=negative_log_marginal_likelihood,
+                    gradient_negative_log_marginal_likelihood=gradient_negative_log_marginal_likelihood,
                 )
 
         return loss, gradient_loss

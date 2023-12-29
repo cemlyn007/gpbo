@@ -1,13 +1,7 @@
-import typing
 import jax
-from gpbo._src import kernels
+from gpbo._src import kernels, datasets
 import jax.numpy as jnp
 import jaxopt
-
-
-class Dataset(typing.NamedTuple):
-    xs: jax.Array
-    ys: jax.Array
 
 
 def get_log_marginal_likelihood(
@@ -32,7 +26,7 @@ def get_log_marginal_likelihood(
 def get_gradient_log_marginal_likelihood(
     kernel: kernels.Kernel,
     state: kernels.State,
-    dataset: Dataset,
+    dataset: datasets.Dataset,
 ) -> kernels.State:
     K = kernel(state, dataset.xs, dataset.xs)
     identity = jnp.identity(K.shape[0])
@@ -73,7 +67,7 @@ def get_gradient_log_marginal_likelihood(
 def get_mean_and_covariance(
     kernel: kernels.Kernel,
     state: kernels.State,
-    dataset: Dataset,
+    dataset: datasets.Dataset,
     xs: jax.Array,
 ) -> tuple[jax.Array, jax.Array]:
     noisy_kernel_dataset_dataset = kernel(state, dataset.xs, dataset.xs) + (
@@ -94,7 +88,7 @@ def get_mean_and_covariance(
 def get_mean_and_variance(
     kernel: kernels.Kernel,
     state: kernels.State,
-    dataset: Dataset,
+    dataset: datasets.Dataset,
     xs: jax.Array,
 ) -> tuple[jax.Array, jax.Array]:
     mean, covariance = get_mean_and_covariance(kernel, state, dataset, xs)
@@ -105,7 +99,7 @@ def get_mean_and_variance(
 def get_mean_and_std(
     kernel: kernels.Kernel,
     state: kernels.State,
-    dataset: Dataset,
+    dataset: datasets.Dataset,
     xs: jax.Array,
 ) -> tuple[jax.Array, jax.Array]:
     mean, variance = get_mean_and_variance(kernel, state, dataset, xs)
@@ -116,7 +110,7 @@ def get_mean_and_std(
 def get_log_predictive_density(
     kernel: kernels.Kernel,
     state: kernels.State,
-    dataset: Dataset,
+    dataset: datasets.Dataset,
     xs: jax.Array,
     ys: jax.Array,
 ) -> jax.Array:
@@ -128,7 +122,7 @@ def get_log_predictive_density(
 def sample(
     kernel: kernels.Kernel,
     state: kernels.State,
-    dataset: Dataset,
+    dataset: datasets.Dataset,
     key: jax.Array,
     xs: jax.Array,
 ) -> jax.Array:
@@ -194,7 +188,7 @@ def get_gradient_signal_noise_ratio_loss(
 def optimize(
     kernel: kernels.Kernel,
     initial_state: kernels.State,
-    dataset: Dataset,
+    dataset: datasets.Dataset,
     max_iterations: int,
     tolerance: float,
     bounds: tuple[kernels.State, kernels.State],

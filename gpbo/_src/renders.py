@@ -6,7 +6,7 @@ from matplotlib import colors
 
 def plot(
     ticks: tuple[np.ndarray, ...],
-    truth: np.ndarray,
+    truth: np.ndarray | None,
     mean: np.ndarray,
     std: np.ndarray,
     xs: np.ndarray,
@@ -24,6 +24,10 @@ def plot(
             figure,
         )
     elif len(ticks) == 2:
+        # TODO: Implement when we want to plot 2D without truths.
+        if truth is None:
+            raise NotImplementedError("Truths are required for 2D plots")
+        # else...
         plot_2d(
             ticks,
             truth,
@@ -39,7 +43,7 @@ def plot(
 
 def plot_1d(
     ticks: tuple[np.ndarray, ...],
-    truth: np.ndarray,
+    truth: np.ndarray | None,
     mean: np.ndarray,
     std: np.ndarray,
     xs: np.ndarray,
@@ -62,11 +66,12 @@ def plot_1d(
         marker="+",
     )
 
-    ax.plot(
-        xx,
-        truth,
-        c="c",
-    )
+    if truth is not None:
+        ax.plot(
+            xx,
+            truth,
+            c="c",
+        )
     ax.set_title(f"Gaussian Process Regression")
 
 

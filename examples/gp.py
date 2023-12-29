@@ -1,6 +1,6 @@
 if __name__ == "__main__":
     import os
-    from gpbo import gaussian_process, objective_functions, kernels, render
+    from gpbo import gaussian_process, objective_functions, kernels, render, datasets
     import jax.numpy as jnp
     import jax.random
     import jax.experimental
@@ -72,6 +72,13 @@ if __name__ == "__main__":
         default=0.0,
         help="Objective function noise",
     )
+    argument_parser.add_argument(
+        "--transform",
+        type=str,
+        default=None,
+        help="Transform to use for the dataset, options are standardize and min_max_scale",
+        choices=["standardize", "min_max_scale", None],
+    )
 
     arguments = argument_parser.parse_args()
 
@@ -85,6 +92,49 @@ if __name__ == "__main__":
     log_noise_scale = math.log(0.5 * math.exp(log_amplitude))
 
     figure = plt.figure(tight_layout=True, figsize=(12, 4))
+
+    def transform_dataset(
+        dataset: datasets.Dataset,
+    ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
+        if arguments.transform == "standardize":
+            return datasets.standardize_dataset(dataset)
+        elif arguments.transform == "min_max_scale":
+            (
+                transformed_dataset,
+                dataset_mins,
+                dataset_maxs,
+            ) = datasets.min_max_scale_dataset(dataset)
+            return (
+                transformed_dataset,
+                datasets.Dataset(dataset_mins.xs, dataset_mins.ys),
+                datasets.Dataset(
+                    dataset_maxs.xs - dataset_mins.xs, dataset_maxs.ys - dataset_mins.ys
+                ),
+            )
+        else:
+            return dataset, None, None
+
+    def transform_values(
+        values: jax.Array, center: jax.Array | None, scale: jax.Array | None
+    ) -> jax.Array:
+        if type(center) != type(scale):
+            raise ValueError("center and scale must be the same type")
+        # else...
+        if arguments.transform is None:
+            return values
+        else:
+            return (values - center) / scale
+
+    def inverse_transform_values(
+        values: jax.Array, center: jax.Array | None, scale: jax.Array | None
+    ) -> jax.Array:
+        if type(center) != type(scale):
+            raise ValueError("center and scale must be the same type")
+        # else...
+        if arguments.transform is None:
+            return values
+        else:
+            return values * scale + center
 
     with jax.experimental.enable_x64(arguments.use_x64):
         BOUNDS = (
@@ -168,7 +218,7 @@ if __name__ == "__main__":
         xs_args = tuple(xs[:, i] for i in range(xs.shape[1])) if xs.ndim > 1 else (xs,)
         ys = objective_function.evaluate(evaluate_key, *xs_args)
 
-        dataset = gaussian_process.Dataset(xs, ys)
+        dataset = datasets.Dataset(xs, ys)
 
         for i in range(arguments.iterations):
             key, sample_key, evaluate_key = jax.random.split(key, 3)
@@ -187,11 +237,14 @@ if __name__ == "__main__":
                 xs=jnp.concatenate([dataset.xs, xs], axis=0),
                 ys=jnp.concatenate([dataset.ys, ys], axis=0),
             )
+            transformed_dataset, dataset_center, dataset_scale = transform_dataset(
+                dataset
+            )
 
             state, ok = optimize(
                 kernel,
                 state,
-                dataset,
+                transformed_dataset,
                 arguments.optimize_max_iterations,
                 arguments.optimize_tolerance,
                 BOUNDS,
@@ -206,11 +259,31 @@ if __name__ == "__main__":
                 negative_log_marginal_likelihoods_xs.append(i)
                 negative_log_marginal_likelihoods.append(
                     -gaussian_process.get_log_marginal_likelihood(
-                        kernel(state, dataset.xs, dataset.xs), dataset.ys
+                        kernel(state, transformed_dataset.xs, transformed_dataset.xs),
+                        transformed_dataset.ys,
                     )
                 )
 
-                mean, std = get_mean_and_std(kernel, state, dataset, grid_xs)
+                mean, std = get_mean_and_std(
+                    kernel,
+                    state,
+                    transformed_dataset,
+                    transform_values(
+                        grid_xs,
+                        None if dataset_center is None else dataset_center.xs,
+                        None if dataset_scale is None else dataset_scale.xs,
+                    ),
+                )
+                mean = inverse_transform_values(
+                    mean,
+                    None if dataset_center is None else dataset_center.ys,
+                    None if dataset_scale is None else dataset_scale.ys,
+                )
+                std = inverse_transform_values(
+                    std,
+                    None if dataset_center is None else dataset_center.ys,
+                    None if dataset_scale is None else dataset_scale.ys,
+                )
 
                 mean = np.asarray(
                     mean.reshape(

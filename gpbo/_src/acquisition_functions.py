@@ -6,6 +6,7 @@ import jax.typing
 import jax.scipy.stats.norm
 from gpbo._src import kernels
 from gpbo._src import gaussian_process
+from gpbo._src import datasets
 
 
 class AcquisitionFunction(abc.ABC):
@@ -14,7 +15,7 @@ class AcquisitionFunction(abc.ABC):
         self,
         kernel: kernels.Kernel,
         state: kernels.State,
-        dataset: gaussian_process.Dataset,
+        dataset: datasets.Dataset,
         xs: jax.Array,
     ) -> jax.Array:
         pass
@@ -25,7 +26,7 @@ class ExpectedImprovement(AcquisitionFunction):
         self,
         kernel: kernels.Kernel,
         state: kernels.State,
-        dataset: gaussian_process.Dataset,
+        dataset: datasets.Dataset,
         xs: jax.Array,
     ) -> jax.Array:
         mean, std = gaussian_process.get_mean_and_std(kernel, state, dataset, xs)
@@ -49,7 +50,7 @@ class LowerConfidenceBound(AcquisitionFunction):
         self,
         kernel: kernels.Kernel,
         state: kernels.State,
-        dataset: gaussian_process.Dataset,
+        dataset: datasets.Dataset,
         xs: jax.Array,
     ) -> jax.Array:
         mean, std = gaussian_process.get_mean_and_std(kernel, state, dataset, xs)

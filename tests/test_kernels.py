@@ -1,4 +1,4 @@
-import kernels
+from gpbo._src import kernels
 import jax.numpy as jnp
 import pytest
 from typing import Generator

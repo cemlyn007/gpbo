@@ -1,6 +1,6 @@
 import typing
 import jax
-import kernels
+from gpbo._src import kernels
 import jax.numpy as jnp
 import jaxopt
 

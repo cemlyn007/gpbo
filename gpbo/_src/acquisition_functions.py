@@ -4,8 +4,8 @@ import jax.random
 import abc
 import jax.typing
 import jax.scipy.stats.norm
-import kernels
-import gaussian_process
+from gpbo._src import kernels
+from gpbo._src import gaussian_process
 
 
 class AcquisitionFunction(abc.ABC):

@@ -1,5 +1,5 @@
 from typing import Generator
-import objective_functions
+from gpbo._src import objective_functions
 import pytest
 import jax
 import jax.experimental
@@ -62,6 +62,7 @@ class TestObjectiveFunction:
         n = 100
         mesh_grid = objective_functions.get_mesh_grid(
             [(boundary, n) for boundary in objective_function.dataset_bounds],
+            sparse=True,
         )
         ys = objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
         if len(objective_function.dataset_bounds) == 1:
@@ -76,6 +77,7 @@ class TestObjectiveFunction:
         n = 100
         mesh_grid = objective_functions.get_mesh_grid(
             [(boundary, n) for boundary in objective_function.dataset_bounds],
+            sparse=True,
         )
         ys = objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
         figure = plt.figure("test")

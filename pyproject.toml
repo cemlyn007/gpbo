@@ -28,6 +28,3 @@ dev = ["pytest"]
 branch = "main"
 version_toml = ["pyproject.toml:project.version"]
 build_command = "python -m build"
-
-[tool.setuptools]
-packages = ["gpbo"]

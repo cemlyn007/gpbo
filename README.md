@@ -6,12 +6,14 @@ Requires Python 3.12 or above.
 pip install git+https://github.com/cemlyn007/gpbo.git#egg=gpbo
 ```
 ### Locally
-Clone the repository at `https://github.com/cemlyn007/gpbo` and run
+Clone the repository at `https://github.com/cemlyn007/gpbo` and run:
 ```
 pip install .
 ```
 ## Development
+Clone the repository at `https://github.com/cemlyn007/gpbo` and run:
 ```pip install -e .[dev]```
+
 # Examples
 ## Optimizing a Gaussian Process
 ### Univariate

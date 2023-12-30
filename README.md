@@ -1,5 +1,5 @@
 # Installation
-Requires Python 3.12 or above.
+Requires Python 3.12 or above. Would recommend JAX 0.4.17 because 0.4.18 to 0.4.23 appears to sometimes yield CUDA internal errors randomly at runtime.
 ## User
 ### Internet
 ```

@@ -8,7 +8,9 @@ if __name__ == "__main__":
     import math
     import matplotlib.pyplot as plt
     import argparse
+    import tqdm
     import platform
+    import jaxlib.xla_extension
 
     argument_parser = argparse.ArgumentParser("Gaussian Process Example")
 
@@ -64,7 +66,7 @@ if __name__ == "__main__":
         type=str,
         default="univariate",
         help="Objective function to use, options are univariate and six_hump_camel",
-        choices=["univariate", "six_hump_camel"],
+        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d"],
     )
     argument_parser.add_argument(
         "--noisy_objective_function",
@@ -137,24 +139,35 @@ if __name__ == "__main__":
             return values * scale + center
 
     with jax.experimental.enable_x64(arguments.use_x64):
+        LOWER_BOUND = -10.0
+        UPPER_BOUND = 10.0
         BOUNDS = (
             kernels.State(
-                jnp.array(-3, dtype=float),
-                jnp.array(-3, dtype=float),
-                jnp.array(-3, dtype=float),
+                jnp.array(LOWER_BOUND, dtype=float),
+                jnp.array(LOWER_BOUND, dtype=float),
+                jnp.array(LOWER_BOUND, dtype=float),
             ),
             kernels.State(
-                jnp.array(3, dtype=float),
-                jnp.array(3, dtype=float),
-                jnp.array(3, dtype=float),
+                jnp.array(UPPER_BOUND, dtype=float),
+                jnp.array(UPPER_BOUND, dtype=float),
+                jnp.array(UPPER_BOUND, dtype=float),
             ),
         )
+        BOUNDS = None
 
         print(jnp.array(1, float).dtype)
         if arguments.objective_function == "univariate":
             objective_function = objective_functions.UnivariateObjectiveFunction()
         elif arguments.objective_function == "six_hump_camel":
             objective_function = objective_functions.SixHumpCamelObjectiveFunction()
+        elif arguments.objective_function == "mnist_1d":
+            objective_function = objective_functions.MnistObjectiveFunction(
+                "/tmp/mnist", False, jax.devices()[0]
+            )
+        elif arguments.objective_function == "mnist_2d":
+            objective_function = objective_functions.MnistObjectiveFunction(
+                "/tmp/mnist", True, jax.devices()[0]
+            )
         else:
             raise ValueError(
                 f"Unknown objective function: {arguments.objective_function}"
@@ -201,9 +214,31 @@ if __name__ == "__main__":
             for boundary in objective_function.dataset_bounds
         )
         grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
-        grid_ys = np.asarray(
-            objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
-        )
+
+        try:
+            grid_ys = np.asarray(
+                objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
+            )
+        except jaxlib.xla_extension.XlaRuntimeError:
+            grid_ys = np.asarray(
+                [
+                    objective_function.evaluate(
+                        jax.random.PRNGKey(0),
+                        *(
+                            grid_xs[ii : ii + 1, iii]
+                            for iii in range(len(objective_function.dataset_bounds))
+                        ),
+                    )
+                    for ii in tqdm.tqdm(
+                        range(grid_xs.shape[0]),
+                        total=grid_xs.shape[0],
+                        desc="Loading grid objective function values...",
+                    )
+                ]
+            )
+            grid_ys = grid_ys.reshape(
+                (arguments.plot_resolution,) * len(objective_function.dataset_bounds)
+            )
 
         negative_log_marginal_likelihoods_xs = []
         negative_log_marginal_likelihoods = []
@@ -216,7 +251,17 @@ if __name__ == "__main__":
         )
 
         xs_args = tuple(xs[:, i] for i in range(xs.shape[1])) if xs.ndim > 1 else (xs,)
-        ys = objective_function.evaluate(evaluate_key, *xs_args)
+        try:
+            ys = objective_function.evaluate(evaluate_key, *xs_args)
+        except jaxlib.xla_extension.XlaRuntimeError:
+            ys = jnp.concatenate(
+                [
+                    objective_function.evaluate(
+                        evaluate_key, *(arg[ii : ii + 1] for arg in xs_args)
+                    )
+                    for ii in range(arguments.initial_dataset_size)
+                ]
+            )
 
         dataset = datasets.Dataset(xs, ys)
 

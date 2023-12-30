@@ -19,10 +19,15 @@ dependencies = [
   "jaxopt",
   "numpy",
   "matplotlib",
+  "flax",
+  "optax",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+examples = [
+  "tqdm",
+]
 
 [tool.semantic_release]
 branch = "main"

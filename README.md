@@ -29,6 +29,15 @@ python examples/gp.py --plot_throughout --objective_function=univariate --use_x6
 ```
 python examples/gp.py --plot_throughout --objective_function=six_hump_camel --use_x64 --iterations 256
 ```
+### MNIST Log Learning Rate vs Negative Accuracy
+```
+python examples/gp.py --plot_throughout --objective_function=mnist_1d --use_x64 --iterations 256
+```
+### MNIST Log Learning Rate and Log Momentum vs Negative Accuracy
+```
+python examples/gp.py --plot_throughout --objective_function=mnist_2d --iterations 135
+```
+
 ## Bayesian Optimization
 ### Univariate
 ```

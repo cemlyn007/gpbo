@@ -79,7 +79,6 @@ def get_mean_and_covariance(
     solution = jax.scipy.linalg.cho_solve((L, True), dataset.ys)
     mean = kernel_dataset_xs.T @ solution
 
-    L = jax.scipy.linalg.cholesky(noisy_kernel_dataset_dataset, lower=True)
     solution = jax.scipy.linalg.cho_solve((L, True), kernel_dataset_xs)
     covariance = kernel(state, xs, xs) - kernel_dataset_xs.T @ solution
     return mean, covariance

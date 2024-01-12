@@ -280,9 +280,10 @@ class CNN(nn.Module):
 
 class MnistObjectiveFunction(ObjectiveFunction):
     def __init__(
-        self, cache_directory: str, add_momentum_dimension: bool, device: jax.Device
+        self, cache_directory: str, add_momentum_dimension: bool, n_epochs: int, device: jax.Device
     ) -> None:
         super().__init__()
+        self._n_epochs = n_epochs
         self._dataset = MnistDataset(cache_directory)
         self._dataset.download()
         self._train_images = (
@@ -357,7 +358,7 @@ class MnistObjectiveFunction(ObjectiveFunction):
 
         _, trained_state = jax.lax.fori_loop(
             0,
-            1000,
+            self._n_epochs,
             train_step,
             (sample_key, state),
         )

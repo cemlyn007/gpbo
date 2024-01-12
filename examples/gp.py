@@ -199,11 +199,11 @@ if __name__ == "__main__":
             objective_function = objective_functions.SixHumpCamelObjectiveFunction()
         elif arguments.objective_function == "mnist_1d":
             objective_function = objective_functions.MnistObjectiveFunction(
-                "/tmp/mnist", False, jax.devices()[0]
+                "/tmp/mnist", False, 100, jax.devices()[0]
             )
         elif arguments.objective_function == "mnist_2d":
             objective_function = objective_functions.MnistObjectiveFunction(
-                "/tmp/mnist", True, jax.devices()[0]
+                "/tmp/mnist", True, 100, jax.devices()[0]
             )
         else:
             raise ValueError(

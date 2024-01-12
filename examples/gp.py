@@ -78,8 +78,15 @@ if __name__ == "__main__":
         "--transform",
         type=str,
         default=None,
-        help="Transform to use for the dataset, options are standardize and min_max_scale",
-        choices=["standardize", "min_max_scale", None],
+        help="Transform to use for the dataset, options are standardize, min_max_scale, standardize_xs_only, mean_center_xs_only and mean_center",
+        choices=[
+            "standardize",
+            "min_max_scale",
+            "mean_center",
+            "standardize_xs_only",
+            "mean_center_xs_only",
+            None,
+        ],
     )
 
     arguments = argument_parser.parse_args()
@@ -100,6 +107,13 @@ if __name__ == "__main__":
     ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
         if arguments.transform == "standardize":
             return datasets.standardize_dataset(dataset)
+        elif arguments.transform == "standardize_xs_only":
+            xs, xs_mean, xs_std = datasets.standardize(dataset.xs)
+            return (
+                datasets.Dataset(xs, dataset.ys),
+                datasets.Dataset(xs_mean, jnp.zeros((), dtype=dataset.ys.dtype)),
+                datasets.Dataset(xs_std, jnp.ones((), dtype=dataset.ys.dtype)),
+            )
         elif arguments.transform == "min_max_scale":
             (
                 transformed_dataset,
@@ -113,8 +127,31 @@ if __name__ == "__main__":
                     dataset_maxs.xs - dataset_mins.xs, dataset_maxs.ys - dataset_mins.ys
                 ),
             )
-        else:
+        elif arguments.transform == "mean_center":
+            return (
+                *datasets.mean_center_dataset(dataset),
+                datasets.Dataset(
+                    jnp.ones((), dtype=dataset.xs.dtype),
+                    jnp.ones((), dtype=dataset.ys.dtype),
+                ),
+            )
+        elif arguments.transform == "mean_center_xs_only":
+            (
+                transformed_dataset,
+                dataset_means,
+            ) = datasets.mean_center_dataset(dataset)
+            return (
+                transformed_dataset,
+                datasets.Dataset(dataset_means.xs, jnp.zeros((), dtype=dataset.ys.dtype)),
+                datasets.Dataset(
+                    jnp.ones((), dtype=dataset.xs.dtype),
+                    jnp.ones((), dtype=dataset.ys.dtype),
+                ),
+            )
+        elif arguments.transform is None:
             return dataset, None, None
+        else:
+            raise ValueError(f"Unknown transform: {arguments.transform}")
 
     def transform_values(
         values: jax.Array, center: jax.Array | None, scale: jax.Array | None

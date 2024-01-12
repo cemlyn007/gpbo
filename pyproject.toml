@@ -33,3 +33,8 @@ examples = [
 branch = "main"
 version_toml = ["pyproject.toml:project.version"]
 build_command = "python -m build"
+
+
+[tool.setuptools.packages.find]
+include = ["gpbo*"]
+exclude = ["examples*"]

@@ -1,5 +1,6 @@
 if __name__ == "__main__":
     from gpbo import (
+        datasets,
         gaussian_process,
         objective_functions,
         kernels,
@@ -154,7 +155,7 @@ if __name__ == "__main__":
             xs = jnp.expand_dims(xs, axis=0)
         xs_args = tuple(xs[:, i] for i in range(xs.shape[1]))
         ys = objective_function.evaluate(jax.random.PRNGKey(0), *xs_args)
-        dataset = gaussian_process.Dataset(xs, ys)
+        dataset = datasets.Dataset(xs, ys)
 
         candidates_mesh_grid = objective_functions.get_mesh_grid(
             ((bound, 100) for bound in objective_function.dataset_bounds), False

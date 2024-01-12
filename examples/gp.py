@@ -1,6 +1,13 @@
 if __name__ == "__main__":
     import os
-    from gpbo import gaussian_process, objective_functions, kernels, render, datasets
+    from gpbo import (
+        gaussian_process,
+        objective_functions,
+        kernels,
+        render,
+        datasets,
+        transformers,
+    )
     import jax.numpy as jnp
     import jax.random
     import jax.experimental
@@ -102,92 +109,6 @@ if __name__ == "__main__":
 
     figure = plt.figure(tight_layout=True, figsize=(12, 4))
 
-    def transform_dataset(
-        dataset: datasets.Dataset,
-    ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
-        if arguments.transform == "standardize":
-            return datasets.standardize_dataset(dataset)
-        elif arguments.transform == "standardize_xs_only":
-            xs, xs_mean, xs_std = datasets.standardize(dataset.xs)
-            return (
-                datasets.Dataset(xs, dataset.ys),
-                datasets.Dataset(xs_mean, jnp.zeros((), dtype=dataset.ys.dtype)),
-                datasets.Dataset(xs_std, jnp.ones((), dtype=dataset.ys.dtype)),
-            )
-        elif arguments.transform == "min_max_scale":
-            (
-                transformed_dataset,
-                dataset_mins,
-                dataset_maxs,
-            ) = datasets.min_max_scale_dataset(dataset)
-            return (
-                transformed_dataset,
-                datasets.Dataset(dataset_mins.xs, dataset_mins.ys),
-                datasets.Dataset(
-                    dataset_maxs.xs - dataset_mins.xs, dataset_maxs.ys - dataset_mins.ys
-                ),
-            )
-        elif arguments.transform == "mean_center":
-            return (
-                *datasets.mean_center_dataset(dataset),
-                datasets.Dataset(
-                    jnp.ones((), dtype=dataset.xs.dtype),
-                    jnp.ones((), dtype=dataset.ys.dtype),
-                ),
-            )
-        elif arguments.transform == "mean_center_xs_only":
-            (
-                transformed_dataset,
-                dataset_means,
-            ) = datasets.mean_center_dataset(dataset)
-            return (
-                transformed_dataset,
-                datasets.Dataset(dataset_means.xs, jnp.zeros((), dtype=dataset.ys.dtype)),
-                datasets.Dataset(
-                    jnp.ones((), dtype=dataset.xs.dtype),
-                    jnp.ones((), dtype=dataset.ys.dtype),
-                ),
-            )
-        elif arguments.transform is None:
-            return dataset, None, None
-        else:
-            raise ValueError(f"Unknown transform: {arguments.transform}")
-
-    def transform_values(
-        values: jax.Array, center: jax.Array | None, scale: jax.Array | None
-    ) -> jax.Array:
-        if type(center) != type(scale):
-            raise ValueError("center and scale must be the same type")
-        # else...
-        if arguments.transform is None:
-            return values
-        else:
-            return (values - center) / scale
-
-    def inverse_transform_values(
-        values: jax.Array, center: jax.Array | None, scale: jax.Array | None
-    ) -> jax.Array:
-        if type(center) != type(scale):
-            raise ValueError("center and scale must be the same type")
-        # else...
-        if arguments.transform is None:
-            return values
-        else:
-            return values * scale + center
-
-    def inverse_transform_stds(
-        stds: jax.Array, mean: jax.Array | None, std: jax.Array | None
-    ) -> jax.Array:
-        if type(mean) != type(std):
-            raise ValueError("center and scale must be the same type")
-        # else...
-        if arguments.transform is None:
-            return stds
-        elif arguments.transform == "standardize":
-            return jnp.sqrt(jnp.square(stds) * jnp.square(std))
-        else:
-            return stds * std + mean
-
     with jax.experimental.enable_x64(arguments.use_x64):
         LOWER_BOUND = -10.0
         UPPER_BOUND = 10.0
@@ -204,6 +125,15 @@ if __name__ == "__main__":
             ),
         )
         BOUNDS = None
+
+        transformer: transformers.Transformer = {
+            "standardize": transformers.Standardizer,
+            "min_max_scale": transformers.MinMaxScaler,
+            "mean_center": transformers.MeanCenterer,
+            "standardize_xs_only": transformers.StandardizerXsOnly,
+            "mean_center_xs_only": transformers.MeanCentererXsOnly,
+            None: transformers.Identity,
+        }[arguments.transform]
 
         print(jnp.array(1, float).dtype)
         if arguments.objective_function == "univariate":
@@ -332,9 +262,11 @@ if __name__ == "__main__":
                 xs=jnp.concatenate([dataset.xs, xs], axis=0),
                 ys=jnp.concatenate([dataset.ys, ys], axis=0),
             )
-            transformed_dataset, dataset_center, dataset_scale = transform_dataset(
-                dataset
-            )
+            (
+                transformed_dataset,
+                dataset_center,
+                dataset_scale,
+            ) = transformer.transform_dataset(dataset)
 
             state, ok = optimize(
                 kernel,
@@ -364,18 +296,18 @@ if __name__ == "__main__":
                     kernel,
                     state,
                     transformed_dataset,
-                    transform_values(
+                    transformer.transform_values(
                         grid_xs,
                         None if dataset_center is None else dataset_center.xs,
                         None if dataset_scale is None else dataset_scale.xs,
                     ),
                 )
-                mean = inverse_transform_values(
+                mean = transformer.inverse_transform_values(
                     transformed_mean,
                     None if dataset_center is None else dataset_center.ys,
                     None if dataset_scale is None else dataset_scale.ys,
                 )
-                std = inverse_transform_stds(
+                std = transformer.inverse_transform_y_stds(
                     transformed_std,
                     None if dataset_center is None else dataset_center.ys,
                     None if dataset_scale is None else dataset_scale.ys,

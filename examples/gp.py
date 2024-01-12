@@ -175,6 +175,19 @@ if __name__ == "__main__":
         else:
             return values * scale + center
 
+    def inverse_transform_stds(
+        stds: jax.Array, mean: jax.Array | None, std: jax.Array | None
+    ) -> jax.Array:
+        if type(mean) != type(std):
+            raise ValueError("center and scale must be the same type")
+        # else...
+        if arguments.transform is None:
+            return stds
+        elif arguments.transform == "standardize":
+            return jnp.sqrt(jnp.square(stds) * jnp.square(std))
+        else:
+            return stds * std + mean
+
     with jax.experimental.enable_x64(arguments.use_x64):
         LOWER_BOUND = -10.0
         UPPER_BOUND = 10.0
@@ -347,7 +360,7 @@ if __name__ == "__main__":
                     )
                 )
 
-                mean, std = get_mean_and_std(
+                transformed_mean, transformed_std = get_mean_and_std(
                     kernel,
                     state,
                     transformed_dataset,
@@ -358,12 +371,12 @@ if __name__ == "__main__":
                     ),
                 )
                 mean = inverse_transform_values(
-                    mean,
+                    transformed_mean,
                     None if dataset_center is None else dataset_center.ys,
                     None if dataset_scale is None else dataset_scale.ys,
                 )
-                std = inverse_transform_values(
-                    std,
+                std = inverse_transform_stds(
+                    transformed_std,
                     None if dataset_center is None else dataset_center.ys,
                     None if dataset_scale is None else dataset_scale.ys,
                 )

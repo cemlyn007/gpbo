@@ -6,6 +6,7 @@ if __name__ == "__main__":
         kernels,
         render,
         acquisition_functions,
+        transformers,
     )
 
     import math
@@ -89,6 +90,20 @@ if __name__ == "__main__":
         help="Acquisition function to use, options are expected_improvement and lower_confidence_bound",
         choices=["expected_improvement", "lower_confidence_bound"],
     )
+    argument_parser.add_argument(
+        "--transform",
+        type=str,
+        default=None,
+        help="Transform to use for the dataset, options are standardize, min_max_scale, standardize_xs_only, mean_center_xs_only and mean_center",
+        choices=[
+            "standardize",
+            "min_max_scale",
+            "mean_center",
+            "standardize_xs_only",
+            "mean_center_xs_only",
+            None,
+        ],
+    )
 
     arguments = argument_parser.parse_args()
 
@@ -137,6 +152,15 @@ if __name__ == "__main__":
             ),
         )
 
+        transformer: transformers.Transformer = {
+            "standardize": transformers.Standardizer,
+            "min_max_scale": transformers.MinMaxScaler,
+            "mean_center": transformers.MeanCenterer,
+            "standardize_xs_only": transformers.StandardizerXsOnly,
+            "mean_center_xs_only": transformers.MeanCentererXsOnly,
+            None: transformers.Identity,
+        }[arguments.transform]
+
         if arguments.noisy_objective_function > 0.0:
             objective_function = objective_functions.NoisyObjectiveFunction(
                 objective_function, arguments.noisy_objective_function
@@ -156,6 +180,11 @@ if __name__ == "__main__":
         xs_args = tuple(xs[:, i] for i in range(xs.shape[1]))
         ys = objective_function.evaluate(jax.random.PRNGKey(0), *xs_args)
         dataset = datasets.Dataset(xs, ys)
+        (
+            transformed_dataset,
+            dataset_center,
+            dataset_scale,
+        ) = transformer.transform_dataset(dataset)
 
         candidates_mesh_grid = objective_functions.get_mesh_grid(
             ((bound, 100) for bound in objective_function.dataset_bounds), False
@@ -175,11 +204,16 @@ if __name__ == "__main__":
         )
 
         mesh_grid = objective_functions.get_mesh_grid(
-            [(boundary, arguments.plot_resolution) for boundary in objective_function.dataset_bounds],
+            [
+                (boundary, arguments.plot_resolution)
+                for boundary in objective_function.dataset_bounds
+            ],
             False,
         )
         ticks = tuple(
-            np.asarray(objective_functions.get_ticks(boundary, arguments.plot_resolution))
+            np.asarray(
+                objective_functions.get_ticks(boundary, arguments.plot_resolution)
+            )
             for boundary in objective_function.dataset_bounds
         )
         grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
@@ -193,7 +227,7 @@ if __name__ == "__main__":
                 new_state, ok = optimize(
                     kernel,
                     state,
-                    dataset,
+                    transformed_dataset,
                     arguments.optimize_max_iterations,
                     arguments.optimize_tolerance,
                     bounds,
@@ -207,8 +241,15 @@ if __name__ == "__main__":
 
                 print(i, state)
 
+                transformed_candidates = transformer.transform_values(
+                    candidates, dataset_center.xs, dataset_scale.xs
+                )
+
                 best_candidate_indices = get_candidate_indices(
-                    kernel, state, dataset, candidates
+                    kernel,
+                    state,
+                    transformed_dataset,
+                    transformed_candidates,
                 )
 
                 best_candidate_index = None
@@ -242,15 +283,44 @@ if __name__ == "__main__":
                     xs=jnp.concatenate([dataset.xs, selected_candidate_xs], axis=0),
                     ys=jnp.concatenate([dataset.ys, selected_candidate_ys], axis=0),
                 )
+                (
+                    transformed_dataset,
+                    dataset_center,
+                    dataset_scale,
+                ) = transformer.transform_dataset(dataset)
 
-                mean, std = get_mean_and_std(kernel, state, dataset, grid_xs)
+                transformed_mean, transformed_std = get_mean_and_std(
+                    kernel,
+                    state,
+                    transformed_dataset,
+                    transformer.transform_values(
+                        grid_xs, dataset_center.xs, dataset_scale.xs
+                    ),
+                )
+
+                mean = transformer.inverse_transform_values(
+                    transformed_mean,
+                    None if dataset_center is None else dataset_center.ys,
+                    None if dataset_scale is None else dataset_scale.ys,
+                )
+                std = transformer.inverse_transform_y_stds(
+                    transformed_std,
+                    None if dataset_center is None else dataset_center.ys,
+                    None if dataset_scale is None else dataset_scale.ys,
+                )
 
                 mean = np.asarray(
-                    mean.reshape((arguments.plot_resolution,) * len(objective_function.dataset_bounds))
+                    mean.reshape(
+                        (arguments.plot_resolution,)
+                        * len(objective_function.dataset_bounds)
+                    )
                 )
 
                 std = np.asarray(
-                    std.reshape((arguments.plot_resolution,) * len(objective_function.dataset_bounds))
+                    std.reshape(
+                        (arguments.plot_resolution,)
+                        * len(objective_function.dataset_bounds)
+                    )
                 )
                 std = np.where(np.isfinite(std), std, -1.0)
 

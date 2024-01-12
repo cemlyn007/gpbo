@@ -304,8 +304,9 @@ if __name__ == "__main__":
                 negative_log_marginal_likelihoods_xs.append(i)
                 negative_log_marginal_likelihoods.append(
                     -gaussian_process.get_log_marginal_likelihood(
-                        kernel(state, transformed_dataset.xs, transformed_dataset.xs),
-                        transformed_dataset.ys,
+                        kernel,
+                        state,
+                        transformed_dataset,
                     )
                 )
 

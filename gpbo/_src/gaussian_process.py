@@ -5,19 +5,26 @@ import jaxopt
 
 
 def get_log_marginal_likelihood(
-    covariance_matrix: jax.Array, ys: jax.Array
+    kernel: kernels.Kernel,
+    state: kernels.State,
+    dataset: datasets.Dataset,
 ) -> jax.Array:
+    covariance_matrix = kernel(
+        state,
+        dataset.xs,
+        dataset.xs,
+    ) + kernels.noise_scale_squared(state) * jnp.identity(dataset.xs.shape[0])
     if covariance_matrix.ndim != 2:
         raise ValueError(
             f"covariance_matrix.ndim must be 2. covariance_matrix.ndim: {covariance_matrix.ndim}"
         )
-    if ys.ndim != 1:
-        raise ValueError(f"ys.ndim must be 1. ys.ndim: {ys.ndim}")
+    if dataset.ys.ndim != 1:
+        raise ValueError(f"ys.ndim must be 1. ys.ndim: {dataset.ys.ndim}")
     # Challenges for Gaussian processes - Imperial - Slide 5, Equation 7,
     # contains more computationally efficient ways to compute the log marginal,
     # that can be done using scipy cho_factor and cho_solve, however I found
     # that this was not stable for my use case.
-    part_a = -0.5 * ys.T @ jnp.linalg.inv(covariance_matrix) @ ys
+    part_a = -0.5 * dataset.ys.T @ jnp.linalg.inv(covariance_matrix) @ dataset.ys
     sign, slogdet = jnp.linalg.slogdet(covariance_matrix, method="lu")
     part_b = -0.5 * sign * slogdet
     return part_a + part_b
@@ -28,15 +35,15 @@ def get_gradient_log_marginal_likelihood(
     state: kernels.State,
     dataset: datasets.Dataset,
 ) -> kernels.State:
-    K = kernel(state, dataset.xs, dataset.xs)
-    identity = jnp.identity(K.shape[0])
+    covariance_matrix = kernel(state, dataset.xs, dataset.xs)
+    identity = jnp.identity(covariance_matrix.shape[0])
     noise = kernels.noise_scale_squared(state) * identity
-    K_noise = K + noise
+    noised_covariance_matrix = covariance_matrix + noise
 
-    L = jax.scipy.linalg.cho_factor(K_noise, lower=True)
+    L = jax.scipy.linalg.cho_factor(noised_covariance_matrix, lower=True)
     alpha = jax.scipy.linalg.cho_solve(L, dataset.ys)
     alpha = jnp.expand_dims(alpha, axis=-1)
-    K_noise_inv = jax.scipy.linalg.cho_solve(L, identity)
+    inversed_noised_covariance_matrix = jax.scipy.linalg.cho_solve(L, identity)
 
     length_scale = kernels.length_scale(state)
 
@@ -46,18 +53,22 @@ def get_gradient_log_marginal_likelihood(
 
     if kernel is kernels.gaussian:
         dkernel_dstate = kernels.State(
-            2 * K,
+            2 * covariance_matrix,
             jnp.divide(
-                K * squared_distances,
+                covariance_matrix * squared_distances,
                 jnp.square(length_scale),
             ),
             2 * noise,
         )
     else:
         raise NotImplementedError
+
     gradient = jax.tree_map(
         lambda dkernel_dtheta: (
-            0.5 * jnp.trace((alpha @ alpha.T - K_noise_inv) @ dkernel_dtheta)
+            0.5
+            * jnp.trace(
+                (alpha @ alpha.T - inversed_noised_covariance_matrix) @ dkernel_dtheta
+            )
         ),
         dkernel_dstate,
     )
@@ -70,8 +81,9 @@ def get_mean_and_covariance(
     dataset: datasets.Dataset,
     xs: jax.Array,
 ) -> tuple[jax.Array, jax.Array]:
+    identity = jnp.identity(dataset.xs.shape[0])
     noisy_kernel_dataset_dataset = kernel(state, dataset.xs, dataset.xs) + (
-        kernels.noise_scale_squared(state) * jnp.eye(dataset.xs.shape[0])
+        kernels.noise_scale_squared(state) * identity
     )
     kernel_dataset_xs = kernel(state, dataset.xs, xs)
 
@@ -197,13 +209,7 @@ def optimize(
 ) -> tuple[kernels.State, jax.Array]:
     def value(s: kernels.State) -> jax.Array:
         negative_log_marginal_likelihood = -get_log_marginal_likelihood(
-            kernel(
-                s,
-                dataset.xs,
-                dataset.xs,
-            )
-            + kernels.noise_scale_squared(s) * jnp.eye(dataset.xs.shape[0]),
-            dataset.ys,
+            kernel, s, dataset
         )
         if max_snr_ratio > 0.0:
             snr_loss = get_signal_noise_ratio_loss(s, max_snr_ratio)
@@ -230,13 +236,9 @@ def optimize(
 
     def value_and_grad(s: kernels.State) -> tuple[jax.Array, kernels.State]:
         negative_log_marginal_likelihood = -get_log_marginal_likelihood(
-            kernel(
-                s,
-                dataset.xs,
-                dataset.xs,
-            )
-            + kernels.noise_scale_squared(s) * jnp.eye(dataset.xs.shape[0]),
-            dataset.ys,
+            kernel,
+            s,
+            dataset,
         )
         gradient_negative_log_marginal_likelihood = jax.tree_map(
             lambda x: -x, get_gradient_log_marginal_likelihood(kernel, s, dataset)

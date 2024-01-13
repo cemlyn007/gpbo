@@ -192,7 +192,7 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
             if learning_rates.size
             else jnp.expand_dims(key, axis=0)
         )
-
+        dtype = learning_rates.dtype
         if self._add_momentum_dimension:
             if log_momentums is None:
                 raise ValueError(
@@ -204,29 +204,41 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
                 raise ValueError(
                     f"learning_rates and momentums must have the same shape. learning_rates.shape: {learning_rates.shape}, momentums.shape: {momentums.shape}"
                 )
+            if learning_rates.dtype != momentums.dtype:
+                raise ValueError(
+                    f"learning_rates and momentums must have the same dtype. learning_rates.dtype: {learning_rates.dtype}, momentums.dtype: {momentums.dtype}"
+                )
             # else...
-            return jax.vmap(self._single_evaluate)(
-                keys, learning_rates.flatten(), momentums.flatten()  # type: ignore
+            return jax.vmap(self._single_evaluate, in_axes=(0, 0, 0, None))(
+                keys, learning_rates.flatten(), momentums.flatten(), dtype  # type: ignore
             ).reshape(learning_rates.shape)
         else:
-            return jax.vmap(self._single_evaluate, in_axes=(0, 0, None))(
-                keys, learning_rates.flatten(), None  # type: ignore
+            return jax.vmap(self._single_evaluate, in_axes=(0, 0, None, None))(
+                keys, learning_rates.flatten(), None, dtype  # type: ignore
             ).reshape(learning_rates.shape)
 
-    def create_train_state(
-        self, rng: jax.Array, learning_rate: float, momentum: float | None
+    def _create_train_state(
+        self,
+        rng: jax.Array,
+        learning_rate: float,
+        momentum: float | None,
+        dtype: jnp.dtype,
     ):
         """Creates initial `TrainState`."""
         cnn = CNN()
-        params = cnn.init(rng, jnp.ones([1, 28, 28, 1], dtype=float))["params"]
-        tx = optax.sgd(learning_rate, momentum, accumulator_dtype=float)
+        params = cnn.init(rng, jnp.ones([1, 28, 28, 1], dtype=dtype))["params"]
+        tx = optax.sgd(learning_rate, momentum, accumulator_dtype=dtype)
         return train_state.TrainState.create(apply_fn=cnn.apply, params=params, tx=tx)
 
     def _single_evaluate(
-        self, key: jax.Array, learning_rate: float, momentum: float | None
+        self,
+        key: jax.Array,
+        learning_rate: float,
+        momentum: float | None,
+        dtype: jnp.dtype,
     ) -> jax.Array:
         init_key, sample_key = jax.random.split(key)
-        state = self.create_train_state(init_key, learning_rate, momentum)
+        state = self._create_train_state(init_key, learning_rate, momentum, dtype)
 
         def train_step(
             i: int, val: tuple[jax.Array, train_state.TrainState]
@@ -268,7 +280,7 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
 
         grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
         (loss, logits), grads = grad_fn(state.params)
-        accuracy = jnp.mean(jnp.argmax(logits, -1) == labels, dtype=float)
+        accuracy = jnp.mean(jnp.argmax(logits, -1) == labels, dtype=logits.dtype)
         return grads, loss, accuracy
 
     @property

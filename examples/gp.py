@@ -66,6 +66,11 @@ if __name__ == "__main__":
         "--use_x64", action="store_true", help="Use 64-bit floating point"
     )
     argument_parser.add_argument(
+        "--cast_x64_to_x32_objective_function",
+        action="store_true",
+        help="Cast 32-bit floating point for the objective function",
+    )
+    argument_parser.add_argument(
         "--plot_throughout", action="store_true", help="Plot throughout"
     )
     argument_parser.add_argument(
@@ -156,6 +161,11 @@ if __name__ == "__main__":
         if arguments.noisy_objective_function > 0.0:
             objective_function = objective_functions.NoisyObjectiveFunction(
                 objective_function, arguments.noisy_objective_function
+            )
+
+        if arguments.cast_x64_to_x32_objective_function:
+            objective_function = objective_functions.DtypeCasterObjectiveFunction(
+                objective_function
             )
 
         objective_function = objective_functions.JitObjectiveFunction(

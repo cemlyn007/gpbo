@@ -1,6 +1,24 @@
 from gpbo._src.objective_functions import core
 import jax
+import jax.numpy as jnp
 import matplotlib.axes
+
+
+class DtypeCasterObjectiveFunction[T: core.ObjectiveFunction](core.ObjectiveFunction):
+    def __init__(self, objective_function: T) -> None:
+        self._objective_function = objective_function
+
+    def evaluate(self, key: jax.Array, *xs: jax.Array) -> jax.Array:
+        xs = jax.tree_map(lambda x: x.astype(jnp.float32), xs)
+        y = self._objective_function.evaluate(key, *xs)
+        return y.astype(jnp.float64)
+
+    @property
+    def dataset_bounds(self) -> tuple[core.Boundary, ...]:
+        return self._objective_function.dataset_bounds
+
+    def plot(self, axis: matplotlib.axes.Axes, *xs: jax.Array) -> None:
+        self._objective_function.plot(axis, *xs)
 
 
 class NoisyObjectiveFunction[T: core.ObjectiveFunction](core.ObjectiveFunction):

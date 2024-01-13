@@ -48,7 +48,7 @@ def plot(
 
 
 def plot_1d(
-    ticks: tuple[np.ndarray, ...],
+    ticks: tuple[np.ndarray],
     truth: np.ndarray | None,
     mean: np.ndarray,
     std: np.ndarray,
@@ -82,7 +82,7 @@ def plot_1d(
 
 
 def plot_2d(
-    ticks: tuple[np.ndarray, ...],
+    ticks: tuple[np.ndarray, np.ndarray],
     truth: np.ndarray,
     mean: np.ndarray,
     std: np.ndarray,
@@ -118,15 +118,7 @@ def plot_2d(
         plot_true = axes[0].contourf(xx, yy, truth, levels=contour_levels, cmap=cmap)
         axes[1].contourf(xx, yy, mean, levels=contour_levels, cmap=cmap)
 
-    try:
-        figure.colorbar(plot_true, ax=axes[1])
-    except ValueError:
-        import traceback
-
-        traceback.print_exc()
-
-        print(np.isinf(xx).any(), np.isinf(yy).any(), np.isinf(mean).any())
-        print(np.isnan(xx).any(), np.isnan(yy).any(), np.isnan(mean).any())
+    figure.colorbar(plot_true, ax=axes[1])
 
     if xs.size:
         axes[0].scatter(xs[:, 0], xs[:, 1], c="b", marker="+")
@@ -150,7 +142,7 @@ def plot_2d(
 
 
 def plot_2d_without_truth(
-    ticks: tuple[np.ndarray, ...],
+    ticks: tuple[np.ndarray, np.ndarray],
     mean: np.ndarray,
     std: np.ndarray,
     xs: np.ndarray,
@@ -175,19 +167,13 @@ def plot_2d_without_truth(
     )
     cmap = "hot"
     try:
-        mean_plot = axes[0].contourf(xx, yy, mean, levels=contour_levels, cmap=cmap, norm=norm)
+        mean_plot = axes[0].contourf(
+            xx, yy, mean, levels=contour_levels, cmap=cmap, norm=norm
+        )
     except ValueError:
         mean_plot = axes[0].contourf(xx, yy, mean, levels=contour_levels, cmap=cmap)
 
-    try:
-        figure.colorbar(mean_plot, ax=axes[0])
-    except ValueError:
-        import traceback
-
-        traceback.print_exc()
-
-        print(np.isinf(xx).any(), np.isinf(yy).any(), np.isinf(mean).any())
-        print(np.isnan(xx).any(), np.isnan(yy).any(), np.isnan(mean).any())
+    figure.colorbar(mean_plot, ax=axes[0])
 
     if xs.size:
         axes[0].scatter(xs[:, 0], xs[:, 1], c="b", marker="+")

@@ -126,7 +126,7 @@ if __name__ == "__main__":
         )
         BOUNDS = None
 
-        transformer: transformers.Transformer = {
+        transformer: type[transformers.Transformer] = {
             "standardize": transformers.Standardizer,
             "min_max_scale": transformers.MinMaxScaler,
             "mean_center": transformers.MeanCenterer,

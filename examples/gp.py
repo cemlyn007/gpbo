@@ -126,14 +126,14 @@ if __name__ == "__main__":
         )
         BOUNDS = None
 
-        transformer: type[transformers.Transformer] = {
+        transformer: transformers.Transformer = {
             "standardize": transformers.Standardizer,
             "min_max_scale": transformers.MinMaxScaler,
             "mean_center": transformers.MeanCenterer,
             "standardize_xs_only": transformers.StandardizerXsOnly,
             "mean_center_xs_only": transformers.MeanCentererXsOnly,
             None: transformers.Identity,
-        }[arguments.transform]
+        }[arguments.transform]()
 
         print(jnp.array(1, float).dtype)
         if arguments.objective_function == "univariate":

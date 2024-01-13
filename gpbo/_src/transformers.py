@@ -1,18 +1,20 @@
 import jax
 import jax.numpy as jnp
-from gpbo import datasets
+from gpbo import datasets, scalers
 import abc
 
 
 class Transformer(abc.ABC):
     @abc.abstractmethod
     def transform_dataset(
+        self,
         dataset: datasets.Dataset,
     ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
         pass
 
     @abc.abstractmethod
     def transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -21,6 +23,7 @@ class Transformer(abc.ABC):
 
     @abc.abstractmethod
     def inverse_transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -29,14 +32,17 @@ class Transformer(abc.ABC):
 
     @abc.abstractmethod
     def inverse_transform_y_stds(
+        self,
         stds: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
     ) -> jax.Array:
         pass
 
+
 class Identity(Transformer):
     def transform_dataset(
+        self,
         dataset: datasets.Dataset,
     ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
         return (
@@ -52,6 +58,7 @@ class Identity(Transformer):
         )
 
     def transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -59,6 +66,7 @@ class Identity(Transformer):
         return values
 
     def inverse_transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -66,19 +74,23 @@ class Identity(Transformer):
         return values
 
     def inverse_transform_y_stds(
+        self,
         stds: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
     ) -> jax.Array:
         return stds
 
+
 class Standardizer(Transformer):
     def transform_dataset(
+        self,
         dataset: datasets.Dataset,
     ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
         return datasets.standardize_dataset(dataset)
 
     def transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -86,6 +98,7 @@ class Standardizer(Transformer):
         return (values - center) / scale
 
     def inverse_transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -93,6 +106,7 @@ class Standardizer(Transformer):
         return values * scale + center
 
     def inverse_transform_y_stds(
+        self,
         stds: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -102,9 +116,10 @@ class Standardizer(Transformer):
 
 class StandardizerXsOnly(Transformer):
     def transform_dataset(
+        self,
         dataset: datasets.Dataset,
     ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
-        xs, xs_mean, xs_std = datasets.standardize(dataset.xs)
+        xs, xs_mean, xs_std = scalers.standardize(dataset.xs)
         return (
             datasets.Dataset(xs, dataset.ys),
             datasets.Dataset(xs_mean, jnp.zeros((), dtype=dataset.ys.dtype)),
@@ -112,6 +127,7 @@ class StandardizerXsOnly(Transformer):
         )
 
     def transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -119,6 +135,7 @@ class StandardizerXsOnly(Transformer):
         return (values - center) / scale
 
     def inverse_transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -126,6 +143,7 @@ class StandardizerXsOnly(Transformer):
         return values * scale + center
 
     def inverse_transform_y_stds(
+        self,
         stds: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -135,6 +153,7 @@ class StandardizerXsOnly(Transformer):
 
 class MinMaxScaler(Transformer):
     def transform_dataset(
+        self,
         dataset: datasets.Dataset,
     ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
         (
@@ -151,6 +170,7 @@ class MinMaxScaler(Transformer):
         )
 
     def transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -158,6 +178,7 @@ class MinMaxScaler(Transformer):
         return (values - center) / scale
 
     def inverse_transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -165,6 +186,7 @@ class MinMaxScaler(Transformer):
         return values * scale + center
 
     def inverse_transform_y_stds(
+        self,
         stds: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -174,6 +196,7 @@ class MinMaxScaler(Transformer):
 
 class MeanCenterer(Transformer):
     def transform_dataset(
+        self,
         dataset: datasets.Dataset,
     ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
         return (
@@ -185,6 +208,7 @@ class MeanCenterer(Transformer):
         )
 
     def transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -192,6 +216,7 @@ class MeanCenterer(Transformer):
         return values - center
 
     def inverse_transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -199,6 +224,7 @@ class MeanCenterer(Transformer):
         return values + center
 
     def inverse_transform_y_stds(
+        self,
         stds: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -208,6 +234,7 @@ class MeanCenterer(Transformer):
 
 class MeanCentererXsOnly(Transformer):
     def transform_dataset(
+        self,
         dataset: datasets.Dataset,
     ) -> tuple[datasets.Dataset, datasets.Dataset | None, datasets.Dataset | None]:
         (
@@ -224,6 +251,7 @@ class MeanCentererXsOnly(Transformer):
         )
 
     def transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -231,6 +259,7 @@ class MeanCentererXsOnly(Transformer):
         return values - center
 
     def inverse_transform_values(
+        self,
         values: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,
@@ -238,6 +267,7 @@ class MeanCentererXsOnly(Transformer):
         return values + center
 
     def inverse_transform_y_stds(
+        self,
         stds: jax.Array,
         center: jax.Array | None,
         scale: jax.Array | None,

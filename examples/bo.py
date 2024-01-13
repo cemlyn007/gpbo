@@ -159,7 +159,7 @@ if __name__ == "__main__":
             "standardize_xs_only": transformers.StandardizerXsOnly,
             "mean_center_xs_only": transformers.MeanCentererXsOnly,
             None: transformers.Identity,
-        }[arguments.transform]
+        }[arguments.transform]()
 
         if arguments.noisy_objective_function > 0.0:
             objective_function = objective_functions.NoisyObjectiveFunction(
@@ -242,7 +242,9 @@ if __name__ == "__main__":
                 print(i, state)
 
                 transformed_candidates = transformer.transform_values(
-                    candidates, dataset_center.xs, dataset_scale.xs
+                    candidates,
+                    None if dataset_center is None else dataset_center.xs,
+                    None if dataset_scale is None else dataset_scale.xs,
                 )
 
                 best_candidate_indices = get_candidate_indices(
@@ -294,7 +296,9 @@ if __name__ == "__main__":
                     state,
                     transformed_dataset,
                     transformer.transform_values(
-                        grid_xs, dataset_center.xs, dataset_scale.xs
+                        grid_xs,
+                        None if dataset_center is None else dataset_center.xs,
+                        None if dataset_scale is None else dataset_scale.xs,
                     ),
                 )
 

@@ -180,7 +180,7 @@ if __name__ == "__main__":
             gaussian_process.get_mean_and_std, static_argnums=(0,)
         )
 
-        mesh_grid = objective_functions.get_mesh_grid(
+        mesh_grid = objective_functions.utils.get_mesh_grid(
             [
                 (boundary, arguments.plot_resolution)
                 for boundary in objective_function.dataset_bounds
@@ -189,7 +189,7 @@ if __name__ == "__main__":
         )
         ticks = tuple(
             np.asarray(
-                objective_functions.get_ticks(boundary, arguments.plot_resolution)
+                objective_functions.utils.get_ticks(boundary, arguments.plot_resolution)
             )
             for boundary in objective_function.dataset_bounds
         )
@@ -224,7 +224,7 @@ if __name__ == "__main__":
         negative_log_marginal_likelihoods = []
 
         key, sample_key, evaluate_key = jax.random.split(key, 3)
-        xs = objective_functions.sample(
+        xs = objective_functions.utils.sample(
             sample_key,
             arguments.initial_dataset_size,
             objective_function.dataset_bounds,
@@ -247,7 +247,7 @@ if __name__ == "__main__":
 
         for i in range(arguments.iterations):
             key, sample_key, evaluate_key = jax.random.split(key, 3)
-            xs = objective_functions.sample(
+            xs = objective_functions.utils.sample(
                 sample_key,
                 1,
                 objective_function.dataset_bounds,

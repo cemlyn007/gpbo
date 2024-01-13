@@ -170,7 +170,7 @@ if __name__ == "__main__":
             objective_function
         )
 
-        xs = objective_functions.sample(
+        xs = objective_functions.utils.sample(
             jax.random.PRNGKey(0),
             arguments.initial_dataset_size,
             objective_function.dataset_bounds,
@@ -186,7 +186,7 @@ if __name__ == "__main__":
             dataset_scale,
         ) = transformer.transform_dataset(dataset)
 
-        candidates_mesh_grid = objective_functions.get_mesh_grid(
+        candidates_mesh_grid = objective_functions.utils.get_mesh_grid(
             ((bound, 100) for bound in objective_function.dataset_bounds), False
         )
         candidates = jnp.dstack(candidates_mesh_grid).reshape(
@@ -203,7 +203,7 @@ if __name__ == "__main__":
             acquisition_function.compute_arg_sort, static_argnums=(0,)
         )
 
-        mesh_grid = objective_functions.get_mesh_grid(
+        mesh_grid = objective_functions.utils.get_mesh_grid(
             [
                 (boundary, arguments.plot_resolution)
                 for boundary in objective_function.dataset_bounds
@@ -212,7 +212,7 @@ if __name__ == "__main__":
         )
         ticks = tuple(
             np.asarray(
-                objective_functions.get_ticks(boundary, arguments.plot_resolution)
+                objective_functions.utils.get_ticks(boundary, arguments.plot_resolution)
             )
             for boundary in objective_function.dataset_bounds
         )

@@ -1,9 +1,6 @@
-from typing import Iterable
-import jax
+from gpbo._src.objective_functions import core
 import jax.numpy as jnp
 import jax.random
-import abc
-import typing
 import matplotlib.axes
 import jax.typing
 import http.client
@@ -13,123 +10,6 @@ import optax
 from flax import linen as nn
 from flax.training import train_state
 import math
-
-
-class Boundary[T: int | float](typing.NamedTuple):
-    min_value: T
-    max_value: T
-    dtype: type[T]
-
-
-class ObjectiveFunction(abc.ABC):
-    @abc.abstractmethod
-    def evaluate(self, key: jax.Array, *xs: jax.Array) -> jax.Array:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def dataset_bounds(self) -> tuple[Boundary, ...]:
-        pass
-
-    @abc.abstractmethod
-    def plot(self, axis: matplotlib.axes.Axes, *xs: jax.Array) -> None:
-        pass
-
-
-class NoisyObjectiveFunction[T: ObjectiveFunction](ObjectiveFunction):
-    def __init__(
-        self,
-        objective_function: T,
-        additional_gaussian_noise_std: float,
-    ) -> None:
-        self._assert_compatible(objective_function)
-        self._objective_function = objective_function
-        self._additional_gaussian_noise_std = additional_gaussian_noise_std
-
-    def _assert_compatible(self, objective_function: ObjectiveFunction) -> None:
-        for i, boundary in enumerate(objective_function.dataset_bounds):
-            if boundary.dtype != float:
-                raise ValueError(
-                    f"Only float dtypes are supported. boundary.dtype at position {i}: {boundary.dtype}"
-                )
-
-    def evaluate(self, key: jax.Array, *xs: jax.Array) -> jax.Array:
-        key, noise_key = jax.random.split(key)
-        y = self._objective_function.evaluate(key, *xs)
-        noise = jax.random.normal(noise_key, y.shape, y.dtype)
-        noisy_y = y + self._additional_gaussian_noise_std * noise
-        return noisy_y
-
-    @property
-    def dataset_bounds(self) -> tuple[Boundary, ...]:
-        return self._objective_function.dataset_bounds
-
-    def plot(self, axis: matplotlib.axes.Axes, *xs: jax.Array) -> None:
-        self._objective_function.plot(axis, *xs)
-
-
-class JitObjectiveFunction[T: ObjectiveFunction](ObjectiveFunction):
-    def __init__(self, objective_function: T) -> None:
-        self._objective_function = objective_function
-        self._evaluate = jax.jit(self._objective_function.evaluate)
-
-    def evaluate(self, key: jax.Array, *xs: jax.Array) -> jax.Array:
-        return self._evaluate(key, *xs)
-
-    @property
-    def dataset_bounds(self) -> tuple[Boundary, ...]:
-        return self._objective_function.dataset_bounds
-
-    def plot(self, axis: matplotlib.axes.Axes, *xs: jax.Array) -> None:
-        self._objective_function.plot(axis, *xs)
-
-
-class UnivariateObjectiveFunction(ObjectiveFunction):
-    def evaluate(self, key: jax.Array, xs: jax.Array) -> jax.Array:
-        result = jnp.sin(xs) + jnp.sin((10.0 / 3.0) * xs)
-        return result
-
-    @property
-    def dataset_bounds(self) -> tuple[Boundary, ...]:
-        return (Boundary(2.0, 8.0, float),)
-
-    def plot(self, axis: matplotlib.axes.Axes, xs: jax.Array, ys: jax.Array) -> None:
-        if xs.shape != ys.shape:
-            raise ValueError(
-                f"xs and ys must have the same shape. xs.shape: {xs.shape}, ys.shape: {ys.shape}"
-            )
-        # else...
-        axis.scatter(xs, ys)
-
-
-class SixHumpCamelObjectiveFunction(ObjectiveFunction):
-    def evaluate(self, key: jax.Array, xs: jax.Array, ys: jax.Array) -> jax.Array:
-        x2 = xs**2
-        x4 = xs**4
-        y2 = ys**2
-        return (4.0 - 2.1 * x2 + (x4 / 3.0)) * x2 + xs * ys + (-4.0 + 4.0 * y2) * y2
-
-    @property
-    def dataset_bounds(self) -> tuple[Boundary, ...]:
-        return (
-            Boundary(-3.0, 3.0, float),
-            Boundary(-2.0, 2.0, float),
-        )
-
-    def plot(
-        self, axis: matplotlib.axes.Axes, xs: jax.Array, ys: jax.Array, zs: jax.Array
-    ) -> None:
-        """xs and ys must be 1-dimensional - likely made from using meshgrid with flatten.
-        zs must be 2-dimensional."""
-        if xs.ndim != 1:
-            raise ValueError(f"xs must be 1-dimensional. xs.ndim: {xs.ndim}")
-        elif ys.ndim != 1:
-            raise ValueError(f"ys must be 1-dimensional. ys.ndim: {ys.ndim}")
-        elif zs.ndim != 2:
-            raise ValueError(f"zs must be 2-dimensional. zs.ndim: {zs.ndim}")
-        # else...
-        levels = jnp.arange(-1.5, 10, 0.5, dtype=xs.dtype)
-        axis.contourf(xs, ys, zs, levels=levels)
 
 
 class MnistDataset:
@@ -278,9 +158,13 @@ class CNN(nn.Module):
         return x
 
 
-class MnistObjectiveFunction(ObjectiveFunction):
+class MnistObjectiveFunction(core.ObjectiveFunction):
     def __init__(
-        self, cache_directory: str, add_momentum_dimension: bool, n_epochs: int, device: jax.Device
+        self,
+        cache_directory: str,
+        add_momentum_dimension: bool,
+        n_epochs: int,
+        device: jax.Device,
     ) -> None:
         super().__init__()
         self._n_epochs = n_epochs
@@ -322,29 +206,31 @@ class MnistObjectiveFunction(ObjectiveFunction):
                 )
             # else...
             return jax.vmap(self._single_evaluate)(
-                keys, learning_rates.flatten(), momentums.flatten()
+                keys, learning_rates.flatten(), momentums.flatten()  # type: ignore
             ).reshape(learning_rates.shape)
         else:
             return jax.vmap(self._single_evaluate, in_axes=(0, 0, None))(
-                keys, learning_rates.flatten(), None
+                keys, learning_rates.flatten(), None  # type: ignore
             ).reshape(learning_rates.shape)
 
-    def create_train_state(self, rng, config):
+    def create_train_state(
+        self, rng: jax.Array, learning_rate: float, momentum: float | None
+    ):
         """Creates initial `TrainState`."""
         cnn = CNN()
         params = cnn.init(rng, jnp.ones([1, 28, 28, 1], dtype=float))["params"]
-        tx = optax.sgd(config["learning_rate"], config["momentum"], accumulator_dtype=float)
+        tx = optax.sgd(learning_rate, momentum, accumulator_dtype=float)
         return train_state.TrainState.create(apply_fn=cnn.apply, params=params, tx=tx)
 
     def _single_evaluate(
         self, key: jax.Array, learning_rate: float, momentum: float | None
-    ) -> float:
+    ) -> jax.Array:
         init_key, sample_key = jax.random.split(key)
-        state = self.create_train_state(
-            init_key, {"learning_rate": learning_rate, "momentum": momentum}
-        )
+        state = self.create_train_state(init_key, learning_rate, momentum)
 
-        def train_step(i, val):
+        def train_step(
+            i: int, val: tuple[jax.Array, train_state.TrainState]
+        ) -> tuple[jax.Array, train_state.TrainState]:
             key, state = val
             key, sub_key = jax.random.split(key)
             shape = (32,)
@@ -369,7 +255,9 @@ class MnistObjectiveFunction(ObjectiveFunction):
 
         return -accuracy
 
-    def apply_model(self, state, images, labels):
+    def apply_model(
+        self, state: train_state.TrainState, images: jax.Array, labels: jax.Array
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
         """Computes gradients, loss and accuracy for a single batch."""
 
         def loss_fn(params):
@@ -384,12 +272,12 @@ class MnistObjectiveFunction(ObjectiveFunction):
         return grads, loss, accuracy
 
     @property
-    def dataset_bounds(self) -> tuple[Boundary, ...]:
+    def dataset_bounds(self) -> tuple[core.Boundary, ...]:
         bounds = [
-            Boundary(math.log(1e-8), math.log(1e-0), float),
+            core.Boundary(math.log(1e-8), math.log(1e-0), float),
         ]  # Learning Rate
         if self._add_momentum_dimension:
-            bounds.append(Boundary(math.log(1e-8), math.log(1e-0), float))
+            bounds.append(core.Boundary(math.log(1e-8), math.log(1e-0), float))
         return tuple(bounds)
 
     def plot(self, axis: matplotlib.axes.Axes, xs: jax.Array, ys: jax.Array) -> None:
@@ -399,57 +287,3 @@ class MnistObjectiveFunction(ObjectiveFunction):
             )
         # else...
         axis.scatter(xs, ys)
-
-
-def sample(key: jax.Array, n: int, dataset_bounds: tuple[Boundary, ...]) -> jax.Array:
-    keys = jax.random.split(key, len(dataset_bounds))
-    xs = jnp.stack(
-        [
-            jax.random.uniform(
-                key,
-                (n,),
-                minval=boundary.min_value,
-                maxval=boundary.max_value,
-                dtype=boundary.dtype,
-            )
-            if boundary.dtype == float
-            else jax.random.randint(
-                key,
-                (n,),
-                minval=boundary.min_value,
-                maxval=boundary.max_value + 1,
-                dtype=boundary.dtype,
-            )
-            for key, boundary in zip(keys, dataset_bounds, strict=True)
-        ],
-        axis=1,
-    )
-    if len(dataset_bounds) == 1:
-        xs = xs.squeeze(axis=1)
-    return xs
-
-
-def get_ticks(
-    boundary: Boundary,
-    max_number_of_points: int,
-) -> jax.Array:
-    ticks = jnp.linspace(
-        boundary.min_value,
-        boundary.max_value,
-        max_number_of_points,
-        dtype=jax.dtypes.canonicalize_dtype(boundary.dtype),
-    )
-    # When using integer dtypes, you can end up with duplicate values.
-    ticks = jnp.unique(ticks)
-    return ticks
-
-
-def get_mesh_grid(
-    boundary_ticks: Iterable[tuple[Boundary, int]], sparse: bool
-) -> list[jax.Array]:
-    """Note that when dealing with integer dtypes, the number of points is not guaranteed to be respected."""
-    grid_points = (
-        get_ticks(boundary, number_of_points)
-        for boundary, number_of_points in boundary_ticks
-    )
-    return jnp.meshgrid(*grid_points, sparse=sparse)

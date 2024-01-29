@@ -75,7 +75,7 @@ if __name__ == "__main__":
         type=str,
         default="univariate",
         help="Objective function to use, options are univariate and six_hump_camel",
-        choices=["univariate", "six_hump_camel"],
+        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d"],
     )
     argument_parser.add_argument(
         "--noisy_objective_function",
@@ -119,6 +119,14 @@ if __name__ == "__main__":
             objective_function = objective_functions.UnivariateObjectiveFunction()
         elif arguments.objective_function == "six_hump_camel":
             objective_function = objective_functions.SixHumpCamelObjectiveFunction()
+        elif arguments.objective_function == "mnist_1d":
+            objective_function = objective_functions.MnistObjectiveFunction(
+                "/tmp/mnist", False, 100, jax.devices()[0]
+            )
+        elif arguments.objective_function == "mnist_2d":
+            objective_function = objective_functions.MnistObjectiveFunction(
+                "/tmp/mnist", True, 100, jax.devices()[0]
+            )
         else:
             raise ValueError(
                 f"Unknown objective function: {arguments.objective_function}"

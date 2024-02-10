@@ -5,3 +5,4 @@ from gpbo._src import kernels
 from gpbo._src import objective_functions
 from gpbo._src import scalers
 from gpbo._src import transformers
+from gpbo._src import io

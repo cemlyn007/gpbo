@@ -7,6 +7,7 @@ if __name__ == "__main__":
         render,
         datasets,
         transformers,
+        io,
     )
     import jax.numpy as jnp
     import jax.random
@@ -100,13 +101,23 @@ if __name__ == "__main__":
             None,
         ],
     )
+    argument_parser.add_argument(
+        "--save_path",
+        type=str,
+        default=None,
+    )
 
     arguments = argument_parser.parse_args()
 
-    if platform.system() == "Darwin":
-        SAVE_PATH = os.path.join(os.getcwd(), "renders.tmp")
-    else:
-        SAVE_PATH = os.path.join(os.getcwd(), "renders")
+    if arguments.save_path is None:
+        save_path = (
+            os.path.join(os.getcwd(), "results.tmp")
+            if platform.system() == "Darwin"
+            else os.path.join(os.getcwd(), "results")
+        )
+        save_path = os.path.join(save_path, arguments.objective_function, arguments.transform)
+
+    os.makedirs(arguments.save_path, exist_ok=True)
 
     log_amplitude = math.log(1.0)
     log_length_scale = math.log(0.5)
@@ -230,6 +241,9 @@ if __name__ == "__main__":
                 (arguments.plot_resolution,) * len(objective_function.dataset_bounds)
             )
 
+        jnp.save(os.path.join(arguments.save_path, "grid_xs.npy"), ticks)
+        jnp.save(os.path.join(arguments.save_path, "grid_ys.npy"), grid_ys)
+
         negative_log_marginal_likelihoods_xs = []
         negative_log_marginal_likelihoods = []
 
@@ -348,11 +362,19 @@ if __name__ == "__main__":
                     np.asarray(dataset.ys),
                     figure,
                 )
-                if not os.path.exists(SAVE_PATH):
-                    os.makedirs(SAVE_PATH, exist_ok=True)
-                figure.savefig(os.path.join(SAVE_PATH, f"{i}.png"))
+                save_path = os.path.join(arguments.save_path, str(i))
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path, exist_ok=True)
+                
+                figure.savefig(os.path.join(save_path, "figure.png"))
+                io.write_csv(
+                    dataset,
+                    os.path.join(save_path, "dataset.csv"),
+                )
+                np.save(os.path.join(save_path, "mean.npy"), mean)
+                np.save(os.path.join(save_path, "std.npy"), std)
 
     plt.close(figure)
 
     plt.plot(negative_log_marginal_likelihoods_xs, negative_log_marginal_likelihoods)
-    plt.savefig(os.path.join(SAVE_PATH, "negative_log_marginal_likelihoods.png"))
+    plt.savefig(os.path.join(arguments.save_path, "negative_log_marginal_likelihoods.png"))

@@ -1,4 +1,6 @@
 from gpbo._src.objective_functions.core import ObjectiveFunction, Boundary
+from gpbo._src.objective_functions.csv import CsvObjectiveFunction
+from gpbo._src.objective_functions.mesh_grid import MeshGridObjectiveFunction
 from gpbo._src.objective_functions.mnist import MnistObjectiveFunction
 from gpbo._src.objective_functions.six_hump_camel import SixHumpCamelObjectiveFunction
 from gpbo._src.objective_functions.univariate import UnivariateObjectiveFunction

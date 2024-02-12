@@ -358,6 +358,7 @@ if __name__ == "__main__":
                     grid_ys,
                     mean,
                     std,
+                    None,
                     np.asarray(dataset.xs),
                     np.asarray(dataset.ys),
                     figure,

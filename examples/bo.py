@@ -7,6 +7,7 @@ if __name__ == "__main__":
         render,
         acquisition_functions,
         transformers,
+        io
     )
 
     import math
@@ -15,6 +16,8 @@ if __name__ == "__main__":
 
     import platform
     import os
+    import jaxlib.xla_extension
+    import tqdm
 
     import jax
     import jax.numpy as jnp
@@ -104,13 +107,24 @@ if __name__ == "__main__":
             None,
         ],
     )
+    argument_parser.add_argument(
+        "--save_path",
+        type=str,
+        default=None,
+    )
 
     arguments = argument_parser.parse_args()
 
-    if platform.system() == "Darwin":
-        SAVE_PATH = os.path.join(os.getcwd(), "renders.tmp")
-    else:
-        SAVE_PATH = os.path.join(os.getcwd(), "renders")
+    if arguments.save_path is None:
+        save_path = (
+            os.path.join(os.getcwd(), "results.tmp")
+            if platform.system() == "Darwin"
+            else os.path.join(os.getcwd(), "results")
+        )
+        save_path = os.path.join(
+            save_path, "bo", arguments.objective_function, arguments.transform)
+
+    os.makedirs(arguments.save_path, exist_ok=True)
 
     with jax.experimental.enable_x64(arguments.use_x64):
         kernel = kernels.gaussian
@@ -135,10 +149,12 @@ if __name__ == "__main__":
         if arguments.acquisition_function == "expected_improvement":
             acquisition_function = acquisition_functions.ExpectedImprovement()
         elif arguments.acquisition_function == "lower_confidence_bound":
-            acquisition_function = acquisition_functions.LowerConfidenceBound(0.5)
+            acquisition_function = acquisition_functions.LowerConfidenceBound(
+                0.5)
         else:
             raise ValueError(
-                f"Unknown acquisition function: {arguments.acquisition_function}"
+                f"Unknown acquisition function: {
+                    arguments.acquisition_function}"
             )
 
         state = kernels.State(
@@ -183,10 +199,20 @@ if __name__ == "__main__":
             arguments.initial_dataset_size,
             objective_function.dataset_bounds,
         )
-        if xs.ndim == 1:
-            xs = jnp.expand_dims(xs, axis=0)
-        xs_args = tuple(xs[:, i] for i in range(xs.shape[1]))
-        ys = objective_function.evaluate(jax.random.PRNGKey(0), *xs_args)
+        xs_args = tuple(xs[:, i] for i in range(
+            xs.shape[1])) if xs.ndim > 1 else (xs,)
+        try:
+            ys = objective_function.evaluate(jax.random.PRNGKey(0), *xs_args)
+        except jaxlib.xla_extension.XlaRuntimeError:
+            ys = jnp.concatenate(
+                [
+                    objective_function.evaluate(
+                        jax.random.PRNGKey(
+                            0), *(arg[ii: ii + 1] for arg in xs_args)
+                    )
+                    for ii in range(arguments.initial_dataset_size)
+                ]
+            )
         dataset = datasets.Dataset(xs, ys)
         (
             transformed_dataset,
@@ -203,13 +229,16 @@ if __name__ == "__main__":
 
         tried_candidate_indices = []
 
-        optimize = jax.jit(gaussian_process.optimize, static_argnums=(0, 3, 4, 6, 7, 8))
+        optimize = jax.jit(gaussian_process.optimize,
+                           static_argnums=(0, 3, 4, 6, 7, 8))
         get_mean_and_std = jax.jit(
             gaussian_process.get_mean_and_std, static_argnums=(0,)
         )
         get_candidate_indices = jax.jit(
             acquisition_function.compute_arg_sort, static_argnums=(0,)
         )
+        get_candidate_utilities = jax.jit(
+            acquisition_function.__call__, static_argnums=(0,))
 
         mesh_grid = objective_functions.utils.get_mesh_grid(
             [
@@ -220,14 +249,40 @@ if __name__ == "__main__":
         )
         ticks = tuple(
             np.asarray(
-                objective_functions.utils.get_ticks(boundary, arguments.plot_resolution)
+                objective_functions.utils.get_ticks(
+                    boundary, arguments.plot_resolution)
             )
             for boundary in objective_function.dataset_bounds
         )
         grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
-        grid_ys = np.asarray(
-            objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
-        )
+        try:
+            grid_ys = np.asarray(
+                objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
+            )
+        except jaxlib.xla_extension.XlaRuntimeError:
+            grid_ys = np.asarray(
+                [
+                    objective_function.evaluate(
+                        jax.random.PRNGKey(0),
+                        *(
+                            grid_xs[ii: ii + 1, iii]
+                            for iii in range(len(objective_function.dataset_bounds))
+                        ),
+                    )
+                    for ii in tqdm.tqdm(
+                        range(grid_xs.shape[0]),
+                        total=grid_xs.shape[0],
+                        desc="Loading grid objective function values...",
+                    )
+                ]
+            )
+            grid_ys = grid_ys.reshape(
+                (arguments.plot_resolution,) *
+                len(objective_function.dataset_bounds)
+            )
+
+        jnp.save(os.path.join(arguments.save_path, "grid_xs.npy"), ticks)
+        jnp.save(os.path.join(arguments.save_path, "grid_ys.npy"), grid_ys)
 
         figure = plt.figure(tight_layout=True, figsize=(12, 4))
         try:
@@ -290,8 +345,10 @@ if __name__ == "__main__":
                 )
 
                 dataset = dataset._replace(
-                    xs=jnp.concatenate([dataset.xs, selected_candidate_xs], axis=0),
-                    ys=jnp.concatenate([dataset.ys, selected_candidate_ys], axis=0),
+                    xs=jnp.concatenate(
+                        [dataset.xs, selected_candidate_xs if len(objective_function.dataset_bounds) > 1 else selected_candidate_xs.squeeze(-1)], axis=0),
+                    ys=jnp.concatenate(
+                        [dataset.ys, selected_candidate_ys], axis=0),
                 )
                 (
                     transformed_dataset,
@@ -336,18 +393,43 @@ if __name__ == "__main__":
                 )
                 std = np.where(np.isfinite(std), std, -1.0)
 
+                candidate_utilities = get_candidate_utilities(
+                    kernel,
+                    state,
+                    transformed_dataset,
+                    transformed_candidates,
+                )
+
+                candidate_utilities = np.asarray(
+                    candidate_utilities.reshape(
+                        (arguments.plot_resolution,)
+                        * len(objective_function.dataset_bounds)
+                    )
+                )
+
                 figure.clear()
                 render.plot(
                     ticks,
                     grid_ys,
                     mean,
                     std,
+                    candidate_utilities,
                     np.asarray(dataset.xs),
                     np.asarray(dataset.ys),
                     figure,
                 )
-                if not os.path.exists(SAVE_PATH):
-                    os.makedirs(SAVE_PATH, exist_ok=True)
-                figure.savefig(os.path.join(SAVE_PATH, f"{i}.png"))
+                save_path = os.path.join(arguments.save_path, str(i))
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path, exist_ok=True)
+
+                figure.savefig(os.path.join(save_path, "figure.png"))
+                io.write_csv(
+                    dataset,
+                    os.path.join(save_path, "dataset.csv"),
+                )
+                np.save(os.path.join(save_path, "mean.npy"), mean)
+                np.save(os.path.join(save_path, "std.npy"), std)
+                jnp.save(os.path.join(save_path, "utility.npy"),
+                         candidate_utilities)
         finally:
             plt.close(figure)

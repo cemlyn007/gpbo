@@ -11,6 +11,13 @@ from gpbo._src import datasets
 
 class AcquisitionFunction(abc.ABC):
     @abc.abstractmethod
+    def __call__(self, kernel: kernels.Kernel,
+                 state: kernels.State,
+                 dataset: datasets.Dataset,
+                 xs: jax.Array,) -> jax.Array:
+        "Compute the utility of the given points."
+
+    @abc.abstractmethod
     def compute_arg_sort(
         self,
         kernel: kernels.Kernel,
@@ -22,6 +29,19 @@ class AcquisitionFunction(abc.ABC):
 
 
 class ExpectedImprovement(AcquisitionFunction):
+    def __call__(self, kernel: kernels.Kernel,
+                 state: kernels.State,
+                 dataset: datasets.Dataset,
+                 xs: jax.Array,) -> jax.Array:
+        mean, std = gaussian_process.get_mean_and_std(
+            kernel, state, dataset, xs)
+        gamma = (jnp.min(dataset.ys) - mean) / std
+        utility = std * (
+            gamma * jax.scipy.stats.norm.cdf(gamma) +
+            jax.scipy.stats.norm.pdf(gamma)
+        )
+        return utility
+
     def compute_arg_sort(
         self,
         kernel: kernels.Kernel,
@@ -29,10 +49,12 @@ class ExpectedImprovement(AcquisitionFunction):
         dataset: datasets.Dataset,
         xs: jax.Array,
     ) -> jax.Array:
-        mean, std = gaussian_process.get_mean_and_std(kernel, state, dataset, xs)
+        mean, std = gaussian_process.get_mean_and_std(
+            kernel, state, dataset, xs)
         gamma = (jnp.min(dataset.ys) - mean) / std
         utility = std * (
-            gamma * jax.scipy.stats.norm.cdf(gamma) + jax.scipy.stats.norm.pdf(gamma)
+            gamma * jax.scipy.stats.norm.cdf(gamma) +
+            jax.scipy.stats.norm.pdf(gamma)
         )
         return jnp.flip(jnp.argsort(utility))
 
@@ -42,9 +64,19 @@ class LowerConfidenceBound(AcquisitionFunction):
         super(LowerConfidenceBound, self).__init__()
         if confidence_rate < 0:
             raise ValueError(
-                f"Confidence rate must be non-negative. confidence_rate: {confidence_rate}"
+                f"Confidence rate must be non-negative. confidence_rate: {
+                    confidence_rate}"
             )
         self._confidence_rate = confidence_rate
+
+    def __call__(self, kernel: kernels.Kernel,
+                 state: kernels.State,
+                 dataset: datasets.Dataset,
+                 xs: jax.Array,) -> jax.Array:
+        mean, std = gaussian_process.get_mean_and_std(
+            kernel, state, dataset, xs)
+        utility = -1 * (mean - jnp.sqrt(self._confidence_rate) * std)
+        return utility
 
     def compute_arg_sort(
         self,
@@ -53,6 +85,7 @@ class LowerConfidenceBound(AcquisitionFunction):
         dataset: datasets.Dataset,
         xs: jax.Array,
     ) -> jax.Array:
-        mean, std = gaussian_process.get_mean_and_std(kernel, state, dataset, xs)
+        mean, std = gaussian_process.get_mean_and_std(
+            kernel, state, dataset, xs)
         utility = -1 * (mean - jnp.sqrt(self._confidence_rate) * std)
         return jnp.flip(jnp.argsort(utility))

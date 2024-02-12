@@ -9,6 +9,7 @@ def plot(
     truth: np.ndarray | None,
     mean: np.ndarray,
     std: np.ndarray,
+    utility: np.ndarray | None,
     xs: np.ndarray,
     ys: np.ndarray,
     figure: matplotlib.figure.Figure,
@@ -19,6 +20,7 @@ def plot(
             truth,
             mean,
             std,
+            utility,
             xs,
             ys,
             figure,
@@ -29,6 +31,7 @@ def plot(
                 ticks,
                 mean,
                 std,
+                utility,
                 xs,
                 ys,
                 figure,
@@ -39,6 +42,7 @@ def plot(
                 truth,
                 mean,
                 std,
+                utility,
                 xs,
                 ys,
                 figure,
@@ -46,26 +50,26 @@ def plot(
     else:
         raise NotImplementedError(f"Cannot plot {len(ticks)} dimensions")
 
-
 def plot_1d(
     ticks: tuple[np.ndarray],
     truth: np.ndarray | None,
     mean: np.ndarray,
     std: np.ndarray,
+    utility: np.ndarray | None,
     xs: np.ndarray,
     ys: np.ndarray,
     figure: matplotlib.figure.Figure,
 ) -> None:
     (xx,) = ticks
 
-    ax = figure.add_subplot(111)
+    axes = [figure.add_subplot(1, 2, 1 + i) for i in range(2)]
 
-    ax.plot(xx, mean, c="m")
-    ax.plot(xx, mean + std, c="r")
-    ax.plot(xx, mean - std, c="b")
+    axes[0].plot(xx, mean, c="m")
+    axes[0].plot(xx, mean + std, c="r")
+    axes[0].plot(xx, mean - std, c="b")
 
-    ax.fill_between(xx, mean - std, mean + std, alpha=0.2, color="m")
-    ax.scatter(
+    axes[0].fill_between(xx, mean - std, mean + std, alpha=0.2, color="m")
+    axes[0].scatter(
         xs,
         ys,
         c="g",
@@ -73,12 +77,17 @@ def plot_1d(
     )
 
     if truth is not None:
-        ax.plot(
+        axes[0].plot(
             xx,
             truth,
             c="c",
         )
-    ax.set_title(f"Gaussian Process Regression")
+    axes[0].set_title(f"Gaussian Process Regression")
+
+    if utility is not None:
+        axes[1].plot(xx, utility, c="m")
+        axes[1].set_title(f"Utility Function")
+
 
 
 def plot_2d(
@@ -86,16 +95,21 @@ def plot_2d(
     truth: np.ndarray,
     mean: np.ndarray,
     std: np.ndarray,
+    utility: np.ndarray | None,
     xs: np.ndarray,
     ys: np.ndarray,
     figure: matplotlib.figure.Figure,
 ) -> None:
     (xx, yy) = ticks
 
-    axes = [figure.add_subplot(1, 3, 1 + i) for i in range(3)]
+    if utility is None:
+        axes = [figure.add_subplot(1, 3, 1 + i) for i in range(3)]
+    else:
+        axes = [figure.add_subplot(1, 4, 1 + i) for i in range(4)]
 
     contour_levels = np.unique(
-        np.percentile(np.concatenate([mean.flatten(), truth.flatten()]), np.arange(101))
+        np.percentile(np.concatenate(
+            [mean.flatten(), truth.flatten()]), np.arange(101))
     )
     if len(contour_levels) == 1:
         contour_levels = np.asarray([0.0] + contour_levels.tolist())
@@ -113,9 +127,11 @@ def plot_2d(
         plot_true = axes[0].contourf(
             xx, yy, truth, levels=contour_levels, cmap=cmap, norm=norm
         )
-        axes[1].contourf(xx, yy, mean, levels=contour_levels, cmap=cmap, norm=norm)
+        axes[1].contourf(xx, yy, mean, levels=contour_levels,
+                         cmap=cmap, norm=norm)
     except ValueError:
-        plot_true = axes[0].contourf(xx, yy, truth, levels=contour_levels, cmap=cmap)
+        plot_true = axes[0].contourf(
+            xx, yy, truth, levels=contour_levels, cmap=cmap)
         axes[1].contourf(xx, yy, mean, levels=contour_levels, cmap=cmap)
 
     figure.colorbar(plot_true, ax=axes[1])
@@ -131,7 +147,8 @@ def plot_2d(
     contour_levels = np.percentile(std, np.arange(101))
     contour_levels = np.unique(contour_levels)
     if len(contour_levels) == 1:
-        contour_levels = np.concatenate([np.asarray([0.0, 1.0]), contour_levels])
+        contour_levels = np.concatenate(
+            [np.asarray([0.0, 1.0]), contour_levels])
         contour_levels = np.unique(contour_levels)
 
     plot_std = axes[2].contourf(xx, yy, std, levels=contour_levels, cmap=cmap)
@@ -140,18 +157,26 @@ def plot_2d(
     figure.colorbar(plot_std, ax=axes[2])
     axes[2].set_title("Gaussian Process Posterior Standard Deviation")
 
+    if utility is not None:
+        axes[3].contourf(xx, yy, utility)
+        axes[3].set_title("Utility Function")
+
 
 def plot_2d_without_truth(
     ticks: tuple[np.ndarray, np.ndarray],
     mean: np.ndarray,
     std: np.ndarray,
+    utility: np.ndarray | None,
     xs: np.ndarray,
     ys: np.ndarray,
     figure: matplotlib.figure.Figure,
 ) -> None:
     (xx, yy) = ticks
 
-    axes = [figure.add_subplot(1, 2, 1 + i) for i in range(2)]
+    if utility is None:
+        axes = [figure.add_subplot(1, 2, 1 + i) for i in range(2)]
+    else:
+        axes = [figure.add_subplot(1, 3, 1 + i) for i in range(3)]
 
     contour_levels = np.unique(np.percentile(mean.flatten(), np.arange(101)))
     if len(contour_levels) == 1:
@@ -171,7 +196,8 @@ def plot_2d_without_truth(
             xx, yy, mean, levels=contour_levels, cmap=cmap, norm=norm
         )
     except ValueError:
-        mean_plot = axes[0].contourf(xx, yy, mean, levels=contour_levels, cmap=cmap)
+        mean_plot = axes[0].contourf(
+            xx, yy, mean, levels=contour_levels, cmap=cmap)
 
     figure.colorbar(mean_plot, ax=axes[0])
 
@@ -185,7 +211,8 @@ def plot_2d_without_truth(
     contour_levels = np.percentile(std, np.arange(101))
     contour_levels = np.unique(contour_levels)
     if len(contour_levels) == 1:
-        contour_levels = np.concatenate([np.asarray([0.0, 1.0]), contour_levels])
+        contour_levels = np.concatenate(
+            [np.asarray([0.0, 1.0]), contour_levels])
         contour_levels = np.unique(contour_levels)
 
     plot_std = axes[1].contourf(xx, yy, std, levels=contour_levels, cmap=cmap)
@@ -193,13 +220,16 @@ def plot_2d_without_truth(
         axes[0].scatter(xs[:, 0], xs[:, 1], c="b", marker="+")
     figure.colorbar(plot_std, ax=axes[1])
     axes[1].set_title("Gaussian Process Posterior Standard Deviation")
-
+    if utility is not None:
+        axes[2].contourf(xx, yy, utility)
+        axes[2].set_title("Utility Function")
 
 def show(
     ticks: tuple[np.ndarray, ...],
     truth: np.ndarray,
     mean: np.ndarray,
     std: np.ndarray,
+    utility: np.ndarray | None,
     xs: np.ndarray,
     ys: np.ndarray,
 ) -> None:
@@ -210,6 +240,7 @@ def show(
             truth,
             mean,
             std,
+            utility,
             xs,
             ys,
             figure,

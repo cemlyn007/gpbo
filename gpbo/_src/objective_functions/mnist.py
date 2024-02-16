@@ -286,10 +286,10 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
     @property
     def dataset_bounds(self) -> tuple[core.Boundary, ...]:
         bounds = [
-            core.Boundary(math.log(1e-8), math.log(1e-0), float),
+            core.Boundary(math.log(1e-4), math.log(1e-0), float),
         ]  # Learning Rate
         if self._add_momentum_dimension:
-            bounds.append(core.Boundary(math.log(1e-8), math.log(1e-0), float))
+            bounds.append(core.Boundary(math.log(1e-3), math.log(1e-0), float))
         return tuple(bounds)
 
     def plot(self, axis: matplotlib.axes.Axes, xs: jax.Array, ys: jax.Array) -> None:

@@ -60,8 +60,16 @@ def get_gradient_log_marginal_likelihood(
             ),
             2 * noise,
         )
+    elif kernel is kernels.matern:
+        tmp = jnp.divide(jnp.sqrt(3 * squared_distances),  length_scale)
+        dkernel_dstate = kernels.State(
+            2 * covariance_matrix,
+            kernels.amplitude_squared(state) * jnp.square(tmp) * jnp.exp(-tmp),
+            2 * noise,
+        )
     else:
-        raise NotImplementedError
+        # TODO: Kernels should implement their own methods instead of being hardcoded here.
+        raise NotImplementedError(f"kernel: {kernel} gradient not implemented")
 
     gradient = jax.tree_map(
         lambda dkernel_dtheta: (

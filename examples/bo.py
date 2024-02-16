@@ -108,6 +108,16 @@ if __name__ == "__main__":
         ],
     )
     argument_parser.add_argument(
+        "--kernel",
+        type=str,
+        default=None,
+        help="Kernel to use for the Gaussian Process, options are gaussian and matern",
+        choices=[
+            "gaussian",
+            "matern",
+        ],
+    )
+    argument_parser.add_argument(
         "--grid_xs_npy_path",
         type=str,
         help="Path to the grid xs npy file if using the npy objective function",
@@ -127,6 +137,9 @@ if __name__ == "__main__":
 
     arguments = argument_parser.parse_args()
 
+    if arguments.kernel is None:
+        raise ValueError("Kernel flag must be specified")
+
     if arguments.save_path is None:
         save_path = (
             os.path.join(os.getcwd(), "results.tmp")
@@ -134,7 +147,7 @@ if __name__ == "__main__":
             else os.path.join(os.getcwd(), "results")
         )
         save_path = os.path.join(
-            save_path, "bo", arguments.objective_function, arguments.transform)
+            save_path, "bo", arguments.objective_function, arguments.kernel, arguments.transform)
     else:
         save_path = arguments.save_path
         
@@ -147,7 +160,12 @@ if __name__ == "__main__":
     os.makedirs(save_path, exist_ok=True)
 
     with jax.experimental.enable_x64(arguments.use_x64):
-        kernel = kernels.gaussian
+        if arguments.kernel == "gaussian":
+            kernel = kernels.gaussian
+        elif arguments.kernel == "matern":
+            kernel = kernels.matern
+        else:
+            raise ValueError(f"Unknown kernel: {arguments.kernel}")
         
         if arguments.objective_function == "npy":
             grid_xs = jnp.load(arguments.grid_xs_npy_path)
@@ -190,14 +208,13 @@ if __name__ == "__main__":
                 0.5)
         else:
             raise ValueError(
-                f"Unknown acquisition function: {
-                    arguments.acquisition_function}"
+                f"Unknown acquisition function: {arguments.acquisition_function}"
             )
 
         state = kernels.State(
-            jnp.array(math.log(1.0), float),
+            jnp.array(math.log(5.0), float),
             jnp.array(math.log(0.5), float),
-            jnp.array(math.log(1000.0), float),
+            jnp.array(math.log(0.5), float),
         )
 
         bounds = (
@@ -381,7 +398,7 @@ if __name__ == "__main__":
 
                 dataset = dataset._replace(
                     xs=jnp.concatenate(
-                        [dataset.xs, selected_candidate_xs if len(objective_function.dataset_bounds) > 1 else selected_candidate_xs.squeeze(-1)], axis=0),
+                        [dataset.xs, selected_candidate_xs], axis=0),
                     ys=jnp.concatenate(
                         [dataset.ys, selected_candidate_ys], axis=0),
                 )

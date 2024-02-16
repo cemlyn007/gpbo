@@ -102,6 +102,16 @@ if __name__ == "__main__":
         ],
     )
     argument_parser.add_argument(
+        "--kernel",
+        type=str,
+        default=None,
+        help="Kernel to use for the Gaussian Process, options are gaussian and matern",
+        choices=[
+            "gaussian",
+            "matern",
+        ],
+    )
+    argument_parser.add_argument(
         "--save_path",
         type=str,
         default=None,
@@ -109,13 +119,18 @@ if __name__ == "__main__":
 
     arguments = argument_parser.parse_args()
 
+    if arguments.kernel is None:
+        raise ValueError("Kernel flag must be specified")
+
     if arguments.save_path is None:
         save_path = (
             os.path.join(os.getcwd(), "results.tmp")
             if platform.system() == "Darwin"
             else os.path.join(os.getcwd(), "results")
         )
-        save_path = os.path.join(save_path, arguments.objective_function, arguments.transform)
+        save_path = os.path.join(save_path, arguments.objective_function, arguments.kernel, arguments.transform)
+    else:
+        save_path = arguments.save_path
 
     os.makedirs(save_path, exist_ok=True)
 
@@ -126,6 +141,13 @@ if __name__ == "__main__":
     figure = plt.figure(tight_layout=True, figsize=(12, 4))
 
     with jax.experimental.enable_x64(arguments.use_x64):
+        if arguments.kernel == "gaussian":
+            kernel = kernels.gaussian
+        elif arguments.kernel == "matern":
+            kernel = kernels.matern
+        else:
+            raise ValueError(f"Unknown kernel: {arguments.kernel}")
+
         LOWER_BOUND = -10.0
         UPPER_BOUND = 10.0
         BOUNDS = (
@@ -182,8 +204,6 @@ if __name__ == "__main__":
         objective_function = objective_functions.JitObjectiveFunction(
             objective_function
         )
-
-        kernel = kernels.gaussian
 
         key = jax.random.PRNGKey(0)
 

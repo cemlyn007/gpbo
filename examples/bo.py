@@ -78,7 +78,7 @@ if __name__ == "__main__":
         type=str,
         default="univariate",
         help="Objective function to use, options are univariate and six_hump_camel",
-        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d"],
+        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d", "npy"],
     )
     argument_parser.add_argument(
         "--noisy_objective_function",
@@ -108,6 +108,18 @@ if __name__ == "__main__":
         ],
     )
     argument_parser.add_argument(
+        "--grid_xs_npy_path",
+        type=str,
+        help="Path to the grid xs npy file if using the npy objective function",
+        default=None,
+    )
+    argument_parser.add_argument(
+        "--grid_ys_npy_path",
+        type=str,
+        help="Path to the grid ys npy file if using the npy objective function",
+        default=None,
+    )
+    argument_parser.add_argument(
         "--save_path",
         type=str,
         default=None,
@@ -123,27 +135,52 @@ if __name__ == "__main__":
         )
         save_path = os.path.join(
             save_path, "bo", arguments.objective_function, arguments.transform)
+    else:
+        save_path = arguments.save_path
+        
+    if arguments.objective_function == "npy":
+        if arguments.grid_xs_npy_path is None:
+            raise ValueError("grid_xs_npy_path must be specified if using npy objective function")
+        if arguments.grid_ys_npy_path is None:
+            raise ValueError("grid_ys_npy_path must be specified if using npy objective function")
 
-    os.makedirs(arguments.save_path, exist_ok=True)
+    os.makedirs(save_path, exist_ok=True)
 
     with jax.experimental.enable_x64(arguments.use_x64):
         kernel = kernels.gaussian
-
-        if arguments.objective_function == "univariate":
-            objective_function = objective_functions.UnivariateObjectiveFunction()
-        elif arguments.objective_function == "six_hump_camel":
-            objective_function = objective_functions.SixHumpCamelObjectiveFunction()
-        elif arguments.objective_function == "mnist_1d":
-            objective_function = objective_functions.MnistObjectiveFunction(
-                "/tmp/mnist", False, 100, jax.devices()[0]
-            )
-        elif arguments.objective_function == "mnist_2d":
-            objective_function = objective_functions.MnistObjectiveFunction(
-                "/tmp/mnist", True, 100, jax.devices()[0]
+        
+        if arguments.objective_function == "npy":
+            grid_xs = jnp.load(arguments.grid_xs_npy_path)
+            grid_ys = jnp.load(arguments.grid_ys_npy_path)
+            jnp.save(os.path.join(save_path, "grid_xs.npy"), grid_xs)
+            jnp.save(os.path.join(save_path, "grid_ys.npy"), grid_ys)
+            objective_function = objective_functions.MeshGridObjectiveFunction(
+                jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0]), grid_ys.flatten()
             )
         else:
-            raise ValueError(
-                f"Unknown objective function: {arguments.objective_function}"
+            if arguments.objective_function == "univariate":
+                objective_function = objective_functions.UnivariateObjectiveFunction()
+            elif arguments.objective_function == "six_hump_camel":
+                objective_function = objective_functions.SixHumpCamelObjectiveFunction()
+            elif arguments.objective_function == "mnist_1d":
+                objective_function = objective_functions.MnistObjectiveFunction(
+                    "/tmp/mnist", False, 100, jax.devices()[0]
+                )
+            elif arguments.objective_function == "mnist_2d":
+                objective_function = objective_functions.MnistObjectiveFunction(
+                    "/tmp/mnist", True, 100, jax.devices()[0]
+                )
+            else:
+                raise ValueError(
+                    f"Unknown objective function: {arguments.objective_function}"
+                )
+            if arguments.noisy_objective_function > 0.0:
+                objective_function = objective_functions.NoisyObjectiveFunction(
+                    objective_function, arguments.noisy_objective_function
+                )
+
+            objective_function = objective_functions.JitObjectiveFunction(
+                objective_function
             )
 
         if arguments.acquisition_function == "expected_improvement":
@@ -160,7 +197,7 @@ if __name__ == "__main__":
         state = kernels.State(
             jnp.array(math.log(1.0), float),
             jnp.array(math.log(0.5), float),
-            jnp.array(math.log(0.5), float),
+            jnp.array(math.log(1.0), float),
         )
 
         bounds = (
@@ -175,6 +212,7 @@ if __name__ == "__main__":
                 jnp.array(3, dtype=float),
             ),
         )
+        bounds = None
 
         transformer: transformers.Transformer = {
             "standardize": transformers.Standardizer,
@@ -185,47 +223,88 @@ if __name__ == "__main__":
             None: transformers.Identity,
         }[arguments.transform]()
 
-        if arguments.noisy_objective_function > 0.0:
-            objective_function = objective_functions.NoisyObjectiveFunction(
-                objective_function, arguments.noisy_objective_function
+        if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):
+            # TODO: Sample some indices! I think I have some code in the old folder for doing this.
+            indices = jax.random.randint(jax.random.PRNGKey(0), (arguments.initial_dataset_size, grid_xs.shape[0]), 0, grid_xs.shape[1])
+            xs = jnp.take_along_axis(grid_xs.T, indices, axis=0)
+            # Honestly I need to learn properly how to index lel.
+            ys = grid_ys[*indices.T]
+            ticks = tuple(np.array(grid_xs[i]) for i in range(grid_xs.shape[0]))
+            grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
+            candidates = grid_xs
+        else:
+            xs = objective_functions.utils.sample(
+                jax.random.PRNGKey(0),
+                arguments.initial_dataset_size,
+                objective_function.dataset_bounds,
             )
+            xs_args = tuple(xs[:, i] for i in range(
+                xs.shape[1])) if xs.ndim > 1 else (xs,)
+            try:
+                ys = objective_function.evaluate(jax.random.PRNGKey(0), *xs_args)
+            except jaxlib.xla_extension.XlaRuntimeError:
+                ys = jnp.concatenate(
+                    [
+                        objective_function.evaluate(
+                            jax.random.PRNGKey(
+                                0), *(arg[ii: ii + 1] for arg in xs_args)
+                        )
+                        for ii in range(arguments.initial_dataset_size)
+                    ]
+                )
 
-        objective_function = objective_functions.JitObjectiveFunction(
-            objective_function
-        )
-
-        xs = objective_functions.utils.sample(
-            jax.random.PRNGKey(0),
-            arguments.initial_dataset_size,
-            objective_function.dataset_bounds,
-        )
-        xs_args = tuple(xs[:, i] for i in range(
-            xs.shape[1])) if xs.ndim > 1 else (xs,)
-        try:
-            ys = objective_function.evaluate(jax.random.PRNGKey(0), *xs_args)
-        except jaxlib.xla_extension.XlaRuntimeError:
-            ys = jnp.concatenate(
-                [
-                    objective_function.evaluate(
-                        jax.random.PRNGKey(
-                            0), *(arg[ii: ii + 1] for arg in xs_args)
-                    )
-                    for ii in range(arguments.initial_dataset_size)
-                ]
+            mesh_grid = objective_functions.utils.get_mesh_grid(
+            [
+                (boundary, arguments.plot_resolution)
+                for boundary in objective_function.dataset_bounds
+            ],
+            False,
             )
+            ticks = tuple(
+                np.asarray(
+                    objective_functions.utils.get_ticks(
+                        boundary, arguments.plot_resolution)
+                )
+                for boundary in objective_function.dataset_bounds
+            )
+            grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
+            try:
+                grid_ys = np.asarray(
+                    objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
+                )
+            except jaxlib.xla_extension.XlaRuntimeError:
+                grid_ys = np.asarray(
+                    [
+                        objective_function.evaluate(
+                            jax.random.PRNGKey(0),
+                            *(
+                                grid_xs[ii: ii + 1, iii]
+                                for iii in range(len(objective_function.dataset_bounds))
+                            ),
+                        )
+                        for ii in tqdm.tqdm(
+                            range(grid_xs.shape[0]),
+                            total=grid_xs.shape[0],
+                            desc="Loading grid objective function values...",
+                        )
+                    ]
+                )
+                grid_ys = grid_ys.reshape(
+                    (arguments.plot_resolution,) *
+                    len(objective_function.dataset_bounds)
+                )
+
+            jnp.save(os.path.join(save_path, "grid_xs.npy"), ticks)
+            jnp.save(os.path.join(save_path, "grid_ys.npy"), grid_ys)
+
+            candidates = grid_xs
+
         dataset = datasets.Dataset(xs, ys)
         (
             transformed_dataset,
             dataset_center,
             dataset_scale,
         ) = transformer.transform_dataset(dataset)
-
-        candidates_mesh_grid = objective_functions.utils.get_mesh_grid(
-            ((bound, 100) for bound in objective_function.dataset_bounds), False
-        )
-        candidates = jnp.dstack(candidates_mesh_grid).reshape(
-            -1, len(candidates_mesh_grid)
-        )
 
         tried_candidate_indices = []
 
@@ -240,50 +319,7 @@ if __name__ == "__main__":
         get_candidate_utilities = jax.jit(
             acquisition_function.__call__, static_argnums=(0,))
 
-        mesh_grid = objective_functions.utils.get_mesh_grid(
-            [
-                (boundary, arguments.plot_resolution)
-                for boundary in objective_function.dataset_bounds
-            ],
-            False,
-        )
-        ticks = tuple(
-            np.asarray(
-                objective_functions.utils.get_ticks(
-                    boundary, arguments.plot_resolution)
-            )
-            for boundary in objective_function.dataset_bounds
-        )
-        grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
-        try:
-            grid_ys = np.asarray(
-                objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
-            )
-        except jaxlib.xla_extension.XlaRuntimeError:
-            grid_ys = np.asarray(
-                [
-                    objective_function.evaluate(
-                        jax.random.PRNGKey(0),
-                        *(
-                            grid_xs[ii: ii + 1, iii]
-                            for iii in range(len(objective_function.dataset_bounds))
-                        ),
-                    )
-                    for ii in tqdm.tqdm(
-                        range(grid_xs.shape[0]),
-                        total=grid_xs.shape[0],
-                        desc="Loading grid objective function values...",
-                    )
-                ]
-            )
-            grid_ys = grid_ys.reshape(
-                (arguments.plot_resolution,) *
-                len(objective_function.dataset_bounds)
-            )
-
-        jnp.save(os.path.join(arguments.save_path, "grid_xs.npy"), ticks)
-        jnp.save(os.path.join(arguments.save_path, "grid_ys.npy"), grid_ys)
-
+        min_y_figure = plt.figure(tight_layout=True, figsize=(4, 4))
         figure = plt.figure(tight_layout=True, figsize=(12, 4))
         try:
             for i in range(arguments.iterations):
@@ -340,9 +376,8 @@ if __name__ == "__main__":
 
                 print(i, selected_candidate_xs)
 
-                selected_candidate_ys = objective_function.evaluate(
-                    jax.random.PRNGKey(0), *xs_args
-                )
+                key = jax.random.PRNGKey(0)
+                selected_candidate_ys = objective_function.evaluate(key, *xs_args)
 
                 dataset = dataset._replace(
                     xs=jnp.concatenate(
@@ -418,18 +453,22 @@ if __name__ == "__main__":
                     np.asarray(dataset.ys),
                     figure,
                 )
-                save_path = os.path.join(arguments.save_path, str(i))
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path, exist_ok=True)
+                min_y_figure.clear()
+                ax = min_y_figure.add_subplot()
+                ax.plot([dataset.ys[:i].min() for i in range(1, dataset.ys.shape[0] + 1)])
+                step_save_path = os.path.join(save_path, str(i))
+                if not os.path.exists(step_save_path):
+                    os.makedirs(step_save_path, exist_ok=True)
 
-                figure.savefig(os.path.join(save_path, "figure.png"))
+                figure.savefig(os.path.join(step_save_path, "figure.png"))
+                min_y_figure.savefig(os.path.join(step_save_path, "min_y_figure.png"))
                 io.write_csv(
                     dataset,
-                    os.path.join(save_path, "dataset.csv"),
+                    os.path.join(step_save_path, "dataset.csv"),
                 )
-                np.save(os.path.join(save_path, "mean.npy"), mean)
-                np.save(os.path.join(save_path, "std.npy"), std)
-                jnp.save(os.path.join(save_path, "utility.npy"),
+                np.save(os.path.join(step_save_path, "mean.npy"), mean)
+                np.save(os.path.join(step_save_path, "std.npy"), std)
+                jnp.save(os.path.join(step_save_path, "utility.npy"),
                          candidate_utilities)
         finally:
             plt.close(figure)

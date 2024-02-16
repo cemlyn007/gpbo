@@ -53,10 +53,5 @@ def matern(state: State, xs: jax.Array, ys: jax.Array) -> jax.Array:
         xs = jnp.expand_dims(xs, axis=-1)
     if ys.ndim == 1:
         ys = jnp.expand_dims(ys, axis=-1)
-    xnorms_2 = jnp.expand_dims(jnp.diag(xs.dot(xs.T)), axis=-1)
-    ynorms_2 = jnp.expand_dims(jnp.diag(ys.dot(ys.T)), axis=-1)
-    xnorms_2 = xnorms_2 @ jnp.ones((1, ynorms_2.shape[0]))
-    ynorms_2 = jnp.ones((xnorms_2.shape[0], 1)) @ ynorms_2.T
-    tmp_calc = xnorms_2 + ynorms_2 - 2 * xs @ ys.T
-    tmp_calc = jnp.sqrt(3 * tmp_calc) / length_scale(state)
+    tmp_calc = jnp.sqrt(3 * euclidean_squared_distance_matrix(xs, ys)) / length_scale(state)
     return amplitude_squared(state) * (1 + tmp_calc) * jnp.exp(-tmp_calc)

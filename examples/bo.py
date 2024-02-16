@@ -214,7 +214,7 @@ if __name__ == "__main__":
         state = kernels.State(
             jnp.array(math.log(5.0), float),
             jnp.array(math.log(0.5), float),
-            jnp.array(math.log(0.5), float),
+            jnp.array(math.log(1.0), float),
         )
 
         bounds = (

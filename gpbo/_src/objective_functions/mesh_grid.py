@@ -18,9 +18,10 @@ class MeshGridObjectiveFunction(core.ObjectiveFunction):
 
     def evaluate(self, key: jax.Array, *xs: jax.Array) -> jax.Array:
         if len(xs) != 1:
-            raise ValueError('MeshGridObjectiveFunction only supports dense arrays.')
-        # else...
-        dense_xs = xs[0]
+            broadcasted_arrays = jnp.broadcast_arrays(*xs)
+            dense_xs =  jnp.stack(broadcasted_arrays, axis=-1)
+        else:
+            dense_xs = xs[0]
 
         has_batch_dimension = len(self._xs.shape) == len(dense_xs.shape)
         if has_batch_dimension:

@@ -78,7 +78,8 @@ if __name__ == "__main__":
         type=str,
         default="univariate",
         help="Objective function to use, options are univariate and six_hump_camel",
-        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d", "npy"],
+        choices=["univariate", "six_hump_camel",
+                 "mnist_1d", "mnist_2d", "npy"],
     )
     argument_parser.add_argument(
         "--noisy_objective_function",
@@ -97,13 +98,14 @@ if __name__ == "__main__":
         "--transform",
         type=str,
         default=None,
-        help="Transform to use for the dataset, options are standardize, min_max_scale, standardize_xs_only, mean_center_xs_only and mean_center",
+        help="Transform to use for the dataset, options are standardize, min_max_scale, standardize_xs_only, mean_center_xs_only, mean_center and none",
         choices=[
             "standardize",
             "min_max_scale",
             "mean_center",
             "standardize_xs_only",
             "mean_center_xs_only",
+            "none",
             None,
         ],
     )
@@ -150,7 +152,7 @@ if __name__ == "__main__":
             save_path, "bo", arguments.objective_function, arguments.kernel, arguments.transform)
     else:
         save_path = arguments.save_path
-        
+
     if arguments.objective_function == "npy":
         if arguments.grid_xs_npy_path is None:
             raise ValueError("grid_xs_npy_path must be specified if using npy objective function")
@@ -166,14 +168,18 @@ if __name__ == "__main__":
             kernel = kernels.matern
         else:
             raise ValueError(f"Unknown kernel: {arguments.kernel}")
-        
+
         if arguments.objective_function == "npy":
             grid_xs = jnp.load(arguments.grid_xs_npy_path)
             grid_ys = jnp.load(arguments.grid_ys_npy_path)
             jnp.save(os.path.join(save_path, "grid_xs.npy"), grid_xs)
             jnp.save(os.path.join(save_path, "grid_ys.npy"), grid_ys)
+            if grid_xs.shape[0] == 1:
+                tmp = jnp.dstack(jnp.meshgrid(*grid_xs)).flatten()
+            else:
+                tmp = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
             objective_function = objective_functions.MeshGridObjectiveFunction(
-                jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0]), grid_ys.flatten()
+                tmp, grid_ys.flatten()
             )
         else:
             if arguments.objective_function == "univariate":
@@ -229,7 +235,6 @@ if __name__ == "__main__":
                 jnp.array(3, dtype=float),
             ),
         )
-        bounds = None
 
         transformer: transformers.Transformer = {
             "standardize": transformers.Standardizer,
@@ -237,17 +242,22 @@ if __name__ == "__main__":
             "mean_center": transformers.MeanCenterer,
             "standardize_xs_only": transformers.StandardizerXsOnly,
             "mean_center_xs_only": transformers.MeanCentererXsOnly,
+            "none": transformers.Identity,
             None: transformers.Identity,
         }[arguments.transform]()
 
         if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):
-            # TODO: Sample some indices! I think I have some code in the old folder for doing this.
             indices = jax.random.randint(jax.random.PRNGKey(0), (arguments.initial_dataset_size, grid_xs.shape[0]), 0, grid_xs.shape[1])
             xs = jnp.take_along_axis(grid_xs.T, indices, axis=0)
-            # Honestly I need to learn properly how to index lel.
+            if len(objective_function.dataset_bounds) == 1:
+                xs = jnp.reshape(xs, (arguments.initial_dataset_size,))
             ys = grid_ys[*indices.T]
-            ticks = tuple(np.array(grid_xs[i]) for i in range(grid_xs.shape[0]))
-            grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
+            ticks = tuple(np.array(grid_xs[i])
+                          for i in range(grid_xs.shape[0]))
+            if len(objective_function.dataset_bounds) == 1:
+                grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).flatten()
+            else:
+                grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
             candidates = grid_xs
         else:
             xs = objective_functions.utils.sample(
@@ -271,11 +281,11 @@ if __name__ == "__main__":
                 )
 
             mesh_grid = objective_functions.utils.get_mesh_grid(
-            [
-                (boundary, arguments.plot_resolution)
-                for boundary in objective_function.dataset_bounds
-            ],
-            False,
+                [
+                    (boundary, arguments.plot_resolution)
+                    for boundary in objective_function.dataset_bounds
+                ],
+                False,
             )
             ticks = tuple(
                 np.asarray(
@@ -284,7 +294,10 @@ if __name__ == "__main__":
                 )
                 for boundary in objective_function.dataset_bounds
             )
-            grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
+            if len(objective_function.dataset_bounds) == 1:
+                grid_xs = jnp.dstack(mesh_grid).flatten()
+            else:
+                grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
             try:
                 grid_ys = np.asarray(
                     objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
@@ -316,6 +329,20 @@ if __name__ == "__main__":
 
             candidates = grid_xs
 
+        if len(objective_function.dataset_bounds) == 1:
+            assert grid_xs.shape == (arguments.plot_resolution,)
+            assert grid_ys.shape == (arguments.plot_resolution,)
+            assert candidates.shape == (arguments.plot_resolution,)
+            assert xs.shape == (arguments.initial_dataset_size,)
+            assert ys.shape == (arguments.initial_dataset_size,)
+        else:
+            assert grid_xs.shape == (arguments.plot_resolution ** len(objective_function.dataset_bounds), len(objective_function.dataset_bounds))
+            assert grid_ys.shape == (arguments.plot_resolution,) * len(objective_function.dataset_bounds)
+            assert candidates.shape == (arguments.plot_resolution ** len(objective_function.dataset_bounds), len(objective_function.dataset_bounds))
+            assert xs.shape == (arguments.initial_dataset_size, len(objective_function.dataset_bounds))
+            assert ys.shape == (arguments.initial_dataset_size,)
+
+
         dataset = datasets.Dataset(xs, ys)
         (
             transformed_dataset,
@@ -335,6 +362,9 @@ if __name__ == "__main__":
         )
         get_candidate_utilities = jax.jit(
             acquisition_function.__call__, static_argnums=(0,))
+
+        cpu_device = jax.devices("cpu")[0]
+        util_device = jax.devices()[0]
 
         min_y_figure = plt.figure(tight_layout=True, figsize=(4, 4))
         figure = plt.figure(tight_layout=True, figsize=(12, 4))
@@ -363,38 +393,60 @@ if __name__ == "__main__":
                     None if dataset_scale is None else dataset_scale.xs,
                 )
 
-                best_candidate_indices = get_candidate_indices(
-                    kernel,
-                    state,
-                    transformed_dataset,
-                    transformed_candidates,
-                )
+                try:
+                    best_candidate_indices = get_candidate_indices(
+                        kernel,
+                        jax.device_put(state, util_device),
+                        jax.device_put(transformed_dataset, util_device),
+                        jax.device_put(transformed_candidates, util_device),
+                    )
+                except jaxlib.xla_extension.XlaRuntimeError:
+                    util_device = cpu_device
+                    best_candidate_indices = get_candidate_indices(
+                        kernel,
+                        jax.device_put(state, cpu_device),
+                        jax.device_put(transformed_dataset, cpu_device),
+                        jax.device_put(transformed_candidates, cpu_device),
+                    )
 
                 best_candidate_index = None
                 for j in range(best_candidate_indices.shape[0]):
-                    if best_candidate_indices[j] not in tried_candidate_indices:
-                        best_candidate_index = best_candidate_indices[j]
-                        tried_candidate_indices.append(best_candidate_index)
+                    index = best_candidate_indices[j].item()
+                    if index not in tried_candidate_indices:
+                        best_candidate_index = index
+                        tried_candidate_indices.append(index)
                         break
                 if best_candidate_index is None:
                     raise ValueError("All candidates have been tried")
 
                 selected_candidate_xs = candidates[best_candidate_index]
 
-                if selected_candidate_xs.ndim == 1:
-                    selected_candidate_xs = jnp.expand_dims(
-                        selected_candidate_xs, axis=0
-                    )
+                print(selected_candidate_xs.shape, flush=True)
 
-                xs_args = tuple(
-                    selected_candidate_xs[:, i]
-                    for i in range(selected_candidate_xs.shape[1])
-                )
+                if len(objective_function.dataset_bounds) == 1:
+                    xs_args = (selected_candidate_xs,)
+                else:
+                    selected_candidate_xs = jnp.expand_dims(selected_candidate_xs, axis=0)
+                    xs_args = tuple(
+                        selected_candidate_xs[:, i]
+                        for i in range(selected_candidate_xs.shape[1])
+                    )
 
                 print(i, selected_candidate_xs)
 
                 key = jax.random.PRNGKey(0)
-                selected_candidate_ys = objective_function.evaluate(key, *xs_args)
+                selected_candidate_ys = objective_function.evaluate(
+                    key, *xs_args)
+                
+                if len(objective_function.dataset_bounds) == 1:
+                    selected_candidate_xs = jnp.expand_dims(selected_candidate_xs, axis=0)
+                    selected_candidate_ys = jnp.expand_dims(selected_candidate_ys, axis=0)
+
+                if len(objective_function.dataset_bounds) == 1:
+                    assert selected_candidate_xs.shape == (len(objective_function.dataset_bounds),)
+                else:
+                    assert selected_candidate_xs.shape == (1, len(objective_function.dataset_bounds))
+                assert selected_candidate_ys.shape == (1,)
 
                 dataset = dataset._replace(
                     xs=jnp.concatenate(
@@ -408,16 +460,29 @@ if __name__ == "__main__":
                     dataset_scale,
                 ) = transformer.transform_dataset(dataset)
 
-                transformed_mean, transformed_std = get_mean_and_std(
-                    kernel,
-                    state,
-                    transformed_dataset,
-                    transformer.transform_values(
-                        grid_xs,
-                        None if dataset_center is None else dataset_center.xs,
-                        None if dataset_scale is None else dataset_scale.xs,
-                    ),
-                )
+                try:                
+                    transformed_mean, transformed_std = get_mean_and_std(
+                        kernel,
+                        jax.device_put(state, util_device),
+                        jax.device_put(transformed_dataset, util_device),
+                        transformer.transform_values(
+                            jax.device_put(grid_xs, util_device),
+                            None if dataset_center is None else dataset_center.xs,
+                            None if dataset_scale is None else dataset_scale.xs,
+                        ),
+                    )
+                except jaxlib.xla_extension.XlaRuntimeError:
+                    util_device = cpu_device
+                    transformed_mean, transformed_std = get_mean_and_std(
+                        kernel,
+                        jax.device_put(state, cpu_device),
+                        jax.device_put(transformed_dataset, cpu_device),
+                        transformer.transform_values(
+                            jax.device_put(grid_xs, cpu_device),
+                            None if dataset_center is None else dataset_center.xs,
+                            None if dataset_scale is None else dataset_scale.xs,
+                        ),
+                    )
 
                 mean = transformer.inverse_transform_values(
                     transformed_mean,
@@ -445,12 +510,21 @@ if __name__ == "__main__":
                 )
                 std = np.where(np.isfinite(std), std, -1.0)
 
-                candidate_utilities = get_candidate_utilities(
-                    kernel,
-                    state,
-                    transformed_dataset,
-                    transformed_candidates,
-                )
+                try:
+                    candidate_utilities = get_candidate_utilities(
+                        kernel,
+                        jax.device_put(state, util_device),
+                        jax.device_put(transformed_dataset, util_device),
+                        jax.device_put(transformed_candidates, util_device),
+                    )
+                except jaxlib.xla_extension.XlaRuntimeError:
+                    util_device = cpu_device
+                    candidate_utilities = get_candidate_utilities(
+                        kernel,
+                        jax.device_put(state, util_device),
+                        jax.device_put(transformed_dataset, util_device),
+                        jax.device_put(transformed_candidates, util_device),
+                    )
 
                 candidate_utilities = np.asarray(
                     candidate_utilities.reshape(

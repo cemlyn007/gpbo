@@ -78,8 +78,8 @@ if __name__ == "__main__":
         "--objective_function",
         type=str,
         default="univariate",
-        help="Objective function to use, options are univariate and six_hump_camel",
-        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d"],
+        help="Objective function to use, options are univariate, six_hump_camel, mnist_1d, mnist_2d and npy",
+        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d", "npy"],
     )
     argument_parser.add_argument(
         "--noisy_objective_function",
@@ -98,6 +98,7 @@ if __name__ == "__main__":
             "mean_center",
             "standardize_xs_only",
             "mean_center_xs_only",
+            "none",
             None,
         ],
     )
@@ -110,6 +111,18 @@ if __name__ == "__main__":
             "gaussian",
             "matern",
         ],
+    )
+    argument_parser.add_argument(
+        "--grid_xs_npy_path",
+        type=str,
+        help="Path to the grid xs npy file if using the npy objective function",
+        default=None,
+    )
+    argument_parser.add_argument(
+        "--grid_ys_npy_path",
+        type=str,
+        help="Path to the grid ys npy file if using the npy objective function",
+        default=None,
     )
     argument_parser.add_argument(
         "--save_path",
@@ -170,40 +183,52 @@ if __name__ == "__main__":
             "mean_center": transformers.MeanCenterer,
             "standardize_xs_only": transformers.StandardizerXsOnly,
             "mean_center_xs_only": transformers.MeanCentererXsOnly,
+            "none": transformers.Identity,
             None: transformers.Identity,
         }[arguments.transform]()
 
         print(jnp.array(1, float).dtype)
-        if arguments.objective_function == "univariate":
-            objective_function = objective_functions.UnivariateObjectiveFunction()
-        elif arguments.objective_function == "six_hump_camel":
-            objective_function = objective_functions.SixHumpCamelObjectiveFunction()
-        elif arguments.objective_function == "mnist_1d":
-            objective_function = objective_functions.MnistObjectiveFunction(
-                "/tmp/mnist", False, 100, jax.devices()[0]
-            )
-        elif arguments.objective_function == "mnist_2d":
-            objective_function = objective_functions.MnistObjectiveFunction(
-                "/tmp/mnist", True, 100, jax.devices()[0]
-            )
+        if arguments.objective_function == "npy":
+            grid_xs = jnp.load(arguments.grid_xs_npy_path)
+            grid_ys = jnp.load(arguments.grid_ys_npy_path)
+            jnp.save(os.path.join(save_path, "grid_xs.npy"), grid_xs)
+            jnp.save(os.path.join(save_path, "grid_ys.npy"), grid_ys)
+            if grid_xs.shape[0] == 1:
+                tmp = jnp.dstack(jnp.meshgrid(*grid_xs)).flatten()
+            else:
+                tmp = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
+            objective_function = objective_functions.MeshGridObjectiveFunction(tmp, grid_ys.flatten())
         else:
-            raise ValueError(
-                f"Unknown objective function: {arguments.objective_function}"
-            )
+            if arguments.objective_function == "univariate":
+                objective_function = objective_functions.UnivariateObjectiveFunction()
+            elif arguments.objective_function == "six_hump_camel":
+                objective_function = objective_functions.SixHumpCamelObjectiveFunction()
+            elif arguments.objective_function == "mnist_1d":
+                objective_function = objective_functions.MnistObjectiveFunction(
+                    "/tmp/mnist", False, 100, jax.devices()[0]
+                )
+            elif arguments.objective_function == "mnist_2d":
+                objective_function = objective_functions.MnistObjectiveFunction(
+                    "/tmp/mnist", True, 100, jax.devices()[0]
+                )
+            else:
+                raise ValueError(
+                    f"Unknown objective function: {arguments.objective_function}"
+                )
 
-        if arguments.noisy_objective_function > 0.0:
-            objective_function = objective_functions.NoisyObjectiveFunction(
-                objective_function, arguments.noisy_objective_function
-            )
+            if arguments.noisy_objective_function > 0.0:
+                objective_function = objective_functions.NoisyObjectiveFunction(
+                    objective_function, arguments.noisy_objective_function
+                )
 
-        if arguments.cast_x64_to_x32_objective_function:
-            objective_function = objective_functions.DtypeCasterObjectiveFunction(
+            if arguments.cast_x64_to_x32_objective_function:
+                objective_function = objective_functions.DtypeCasterObjectiveFunction(
+                    objective_function
+                )
+
+            objective_function = objective_functions.JitObjectiveFunction(
                 objective_function
             )
-
-        objective_function = objective_functions.JitObjectiveFunction(
-            objective_function
-        )
 
         key = jax.random.PRNGKey(0)
 
@@ -221,86 +246,130 @@ if __name__ == "__main__":
             gaussian_process.get_mean_and_std, static_argnums=(0,)
         )
 
-        mesh_grid = objective_functions.utils.get_mesh_grid(
-            [
-                (boundary, arguments.plot_resolution)
-                for boundary in objective_function.dataset_bounds
-            ],
-            False,
-        )
-        ticks = tuple(
-            np.asarray(
-                objective_functions.utils.get_ticks(boundary, arguments.plot_resolution)
-            )
-            for boundary in objective_function.dataset_bounds
-        )
-        grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
+        if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):
+            ticks = tuple(np.array(grid_xs[i])
+                          for i in range(grid_xs.shape[0]))
+            
+            if grid_xs.shape[0] == 1:
+                grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).flatten()
+            else:
+                grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
 
-        try:
-            grid_ys = np.asarray(
-                objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
-            )
-        except jaxlib.xla_extension.XlaRuntimeError:
-            grid_ys = np.asarray(
+            unsampled_indices = list(range(grid_xs.shape[0]))
+            def sample_index(key):
+                index = jax.random.choice(key, jnp.array(unsampled_indices), (), replace=False)
+                unsampled_indices.remove(index.item())
+                return index.item()
+            
+            keys = jax.random.split(key, arguments.initial_dataset_size)
+            indices = jnp.array([sample_index(key) for key in keys])
+
+            xs = grid_xs[indices]
+            ys = grid_ys.flatten()[indices]
+        else:
+            mesh_grid = objective_functions.utils.get_mesh_grid(
                 [
-                    objective_function.evaluate(
-                        jax.random.PRNGKey(0),
-                        *(
-                            grid_xs[ii : ii + 1, iii]
-                            for iii in range(len(objective_function.dataset_bounds))
-                        ),
-                    )
-                    for ii in tqdm.tqdm(
-                        range(grid_xs.shape[0]),
-                        total=grid_xs.shape[0],
-                        desc="Loading grid objective function values...",
-                    )
-                ]
+                    (boundary, arguments.plot_resolution)
+                    for boundary in objective_function.dataset_bounds
+                ],
+                False,
             )
-            grid_ys = grid_ys.reshape(
-                (arguments.plot_resolution,) * len(objective_function.dataset_bounds)
+            ticks = tuple(
+                np.asarray(
+                    objective_functions.utils.get_ticks(boundary, arguments.plot_resolution)
+                )
+                for boundary in objective_function.dataset_bounds
+            )
+            grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
+
+            try:
+                grid_ys = np.asarray(
+                    objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
+                )
+            except jaxlib.xla_extension.XlaRuntimeError:
+                grid_ys = np.asarray(
+                    [
+                        objective_function.evaluate(
+                            jax.random.PRNGKey(0),
+                            *(
+                                grid_xs[ii : ii + 1, iii]
+                                for iii in range(len(objective_function.dataset_bounds))
+                            ),
+                        )
+                        for ii in tqdm.tqdm(
+                            range(grid_xs.shape[0]),
+                            total=grid_xs.shape[0],
+                            desc="Loading grid objective function values...",
+                        )
+                    ]
+                )
+                grid_ys = grid_ys.reshape(
+                    (arguments.plot_resolution,) * len(objective_function.dataset_bounds)
+                )
+
+            jnp.save(os.path.join(save_path, "grid_xs.npy"), ticks)
+            jnp.save(os.path.join(save_path, "grid_ys.npy"), grid_ys)
+
+            key, sample_key, evaluate_key = jax.random.split(key, 3)
+            xs = objective_functions.utils.sample(
+                sample_key,
+                arguments.initial_dataset_size,
+                objective_function.dataset_bounds,
             )
 
-        jnp.save(os.path.join(save_path, "grid_xs.npy"), ticks)
-        jnp.save(os.path.join(save_path, "grid_ys.npy"), grid_ys)
+            xs_args = tuple(xs[:, i] for i in range(xs.shape[1])) if xs.ndim > 1 else (xs,)
+            try:
+                ys = objective_function.evaluate(evaluate_key, *xs_args)
+            except jaxlib.xla_extension.XlaRuntimeError:
+                ys = jnp.concatenate(
+                    [
+                        objective_function.evaluate(
+                            evaluate_key, *(arg[ii : ii + 1] for arg in xs_args)
+                        )
+                        for ii in range(arguments.initial_dataset_size)
+                    ]
+                )
+
+        
 
         negative_log_marginal_likelihoods_xs = []
         negative_log_marginal_likelihoods = []
 
-        key, sample_key, evaluate_key = jax.random.split(key, 3)
-        xs = objective_functions.utils.sample(
-            sample_key,
-            arguments.initial_dataset_size,
-            objective_function.dataset_bounds,
-        )
-
-        xs_args = tuple(xs[:, i] for i in range(xs.shape[1])) if xs.ndim > 1 else (xs,)
-        try:
-            ys = objective_function.evaluate(evaluate_key, *xs_args)
-        except jaxlib.xla_extension.XlaRuntimeError:
-            ys = jnp.concatenate(
-                [
-                    objective_function.evaluate(
-                        evaluate_key, *(arg[ii : ii + 1] for arg in xs_args)
-                    )
-                    for ii in range(arguments.initial_dataset_size)
-                ]
-            )
-
         dataset = datasets.Dataset(xs, ys)
+
+        cpu_device = jax.devices("cpu")[0]
+
+        util_device = jax.devices()[0]
 
         for i in range(arguments.iterations):
             key, sample_key, evaluate_key = jax.random.split(key, 3)
-            xs = objective_functions.utils.sample(
-                sample_key,
-                1,
-                objective_function.dataset_bounds,
-            )
+            if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):
+                xs = grid_xs[sample_index(sample_key)]
+                if len(xs.shape) == 0:
+                    xs = jnp.expand_dims(xs, 0)
+            else:
+                xs = objective_functions.utils.sample(
+                    sample_key,
+                    1,
+                    objective_function.dataset_bounds,
+                )
+                xs = jnp.reshape(xs, (len(objective_function.dataset_bounds,)))
 
-            xs_args = (
-                tuple(xs[:, j] for j in range(xs.shape[1])) if xs.ndim > 1 else (xs,)
-            )
+            assert xs.shape == (len(objective_function.dataset_bounds),)
+
+            if len(objective_function.dataset_bounds) == 1:
+                xs_args = (xs,)
+            else:
+                xs_args = tuple(xs[j] for j in range(xs.shape[0]))
+
             ys = objective_function.evaluate(evaluate_key, *xs_args)
+
+            assert xs.shape == (len(objective_function.dataset_bounds),)
+
+            if len(objective_function.dataset_bounds) > 1:
+                xs = jnp.reshape(xs, (1, len(objective_function.dataset_bounds)))
+
+            ys = jnp.reshape(ys, (1,))
 
             dataset = dataset._replace(
                 xs=jnp.concatenate([dataset.xs, xs], axis=0),
@@ -336,16 +405,30 @@ if __name__ == "__main__":
                     )
                 )
 
-                transformed_mean, transformed_std = get_mean_and_std(
-                    kernel,
-                    state,
-                    transformed_dataset,
-                    transformer.transform_values(
-                        grid_xs,
-                        None if dataset_center is None else dataset_center.xs,
-                        None if dataset_scale is None else dataset_scale.xs,
-                    ),
-                )
+                try:
+                    transformed_mean, transformed_std = get_mean_and_std(
+                        kernel,
+                        jax.device_put(state, util_device),
+                        jax.device_put(transformed_dataset, util_device),
+                        transformer.transform_values(
+                            jax.device_put(grid_xs, util_device),
+                            None if dataset_center is None else dataset_center.xs,
+                            None if dataset_scale is None else dataset_scale.xs,
+                        ),
+                    )
+                except jaxlib.xla_extension.XlaRuntimeError:
+                    util_device = cpu_device
+                    transformed_mean, transformed_std = get_mean_and_std(
+                        kernel,
+                        jax.device_put(state, cpu_device),
+                        jax.device_put(transformed_dataset, cpu_device),
+                        transformer.transform_values(
+                            jax.device_put(grid_xs, cpu_device),
+                            None if dataset_center is None else dataset_center.xs,
+                            None if dataset_scale is None else dataset_scale.xs,
+                        ),
+                    )
+
                 mean = transformer.inverse_transform_values(
                     transformed_mean,
                     None if dataset_center is None else dataset_center.ys,

@@ -62,7 +62,10 @@ def plot_1d(
 ) -> None:
     (xx,) = ticks
 
-    axes = [figure.add_subplot(1, 2, 1 + i) for i in range(2)]
+    if utility is None:
+        axes = [figure.add_subplot(1, 1, 1 + i) for i in range(1)]
+    else:
+        axes = [figure.add_subplot(1, 2, 1 + i) for i in range(2)]
 
     axes[0].plot(xx, mean, c="m")
     axes[0].plot(xx, mean + std, c="r")

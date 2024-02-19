@@ -49,13 +49,7 @@ class ExpectedImprovement(AcquisitionFunction):
         dataset: datasets.Dataset,
         xs: jax.Array,
     ) -> jax.Array:
-        mean, std = gaussian_process.get_mean_and_std(
-            kernel, state, dataset, xs)
-        gamma = (jnp.min(dataset.ys) - mean) / std
-        utility = std * (
-            gamma * jax.scipy.stats.norm.cdf(gamma) +
-            jax.scipy.stats.norm.pdf(gamma)
-        )
+        utility = self(kernel, state, dataset, xs)
         return jnp.flip(jnp.argsort(utility))
 
 
@@ -85,7 +79,5 @@ class LowerConfidenceBound(AcquisitionFunction):
         dataset: datasets.Dataset,
         xs: jax.Array,
     ) -> jax.Array:
-        mean, std = gaussian_process.get_mean_and_std(
-            kernel, state, dataset, xs)
-        utility = -1 * (mean - jnp.sqrt(self._confidence_rate) * std)
+        utility = self(kernel, state, dataset, xs)
         return jnp.flip(jnp.argsort(utility))

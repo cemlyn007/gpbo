@@ -308,3 +308,44 @@ def optimize(
     )
     ok = jnp.isfinite(opt_step.state.error)
     return (opt_step.params, ok)
+
+
+def multi_optimize(
+    kernel: kernels.Kernel,
+    initial_states: tuple[kernels.State, ...],
+    dataset: datasets.Dataset,
+    max_iterations: int,
+    tolerance: float,
+    bounds: tuple[kernels.State, kernels.State],
+    max_snr_ratio: float,
+    use_auto_grad: bool = False,
+    verbose: bool = False,
+) -> tuple[kernels.State, jax.Array]:
+    initial_state = initial_states[0]
+    initial_states = jax.tree_map(lambda *xs: jnp.stack(xs), *initial_states)
+
+    def body_fun(i, val):
+        (best_state, best_log_marginal_likelihood) = val
+        assert isinstance(best_state, kernels.State)
+        assert isinstance(best_log_marginal_likelihood, jax.Array)
+        state, ok = optimize(
+            kernel,
+            jax.tree_map(lambda x: x[i], initial_states),
+            dataset,
+            max_iterations,
+            tolerance,
+            bounds,
+            max_snr_ratio,
+            use_auto_grad,
+            verbose,
+        )
+        log_marginal_likelihood = get_log_marginal_likelihood(kernel, state, dataset)
+        better = log_marginal_likelihood > best_log_marginal_likelihood
+        ok_and_better = jnp.logical_and(ok, better)
+        best_state = jax.tree_map(lambda x, y: jnp.where(ok_and_better, x, y), state, best_state)
+        best_log_marginal_likelihood = jnp.where(ok_and_better, log_marginal_likelihood, best_log_marginal_likelihood)
+        assert isinstance(best_state, kernels.State)
+        assert isinstance(best_log_marginal_likelihood, jax.Array)
+        return (best_state, best_log_marginal_likelihood)
+
+    return jax.lax.fori_loop(0, len(initial_states), body_fun, (initial_state, -jnp.inf))

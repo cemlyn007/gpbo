@@ -48,6 +48,12 @@ if __name__ == "__main__":
         help="Number of points to sample initially",
     )
     argument_parser.add_argument(
+        "--optimizer_random_starts",
+        type=int,
+        default=0,
+        help="Number of random starts to run the optimizer",
+    )
+    argument_parser.add_argument(
         "--optimize_max_iterations",
         type=int,
         default=500,
@@ -352,7 +358,7 @@ if __name__ == "__main__":
 
         tried_candidate_indices = []
 
-        optimize = jax.jit(gaussian_process.optimize,
+        multi_optimize = jax.jit(gaussian_process.multi_optimize,
                            static_argnums=(0, 3, 4, 6, 7, 8))
         get_mean_and_std = jax.jit(
             gaussian_process.get_mean_and_std, static_argnums=(0,)
@@ -370,9 +376,20 @@ if __name__ == "__main__":
         figure = plt.figure(tight_layout=True, figsize=(12, 4))
         try:
             for i in range(arguments.iterations):
-                new_state, ok = optimize(
+                jax.clear_caches()
+
+                if arguments.optimizer_random_starts > 0:
+                    optimize_keys = jax.random.split(jax.random.PRNGKey(i), arguments.optimizer_random_starts * 3)
+                    optimize_keys = jnp.reshape(optimize_keys, (arguments.optimizer_random_starts, 3, -1))
+                else:
+                    optimize_keys = []
+                new_state, ok = multi_optimize(
                     kernel,
-                    state,
+                    [state] + [kernels.State(
+                        jax.random.uniform(keys[0], minval=bounds[0].log_amplitude, maxval=bounds[1].log_amplitude),
+                        jax.random.uniform(keys[1], minval=bounds[0].log_length_scale, maxval=bounds[1].log_length_scale),
+                        jax.random.uniform(keys[2], minval=bounds[0].log_noise_scale, maxval=bounds[1].log_noise_scale),
+                    ) for keys in optimize_keys],
                     transformed_dataset,
                     arguments.optimize_max_iterations,
                     arguments.optimize_tolerance,
@@ -435,8 +452,7 @@ if __name__ == "__main__":
                 print(i, selected_candidate_xs)
 
                 key = jax.random.PRNGKey(0)
-                selected_candidate_ys = objective_function.evaluate(
-                    key, *xs_args)
+                selected_candidate_ys = objective_function.evaluate(key, *xs_args)
                 
                 if len(objective_function.dataset_bounds) == 1:
                     selected_candidate_xs = jnp.expand_dims(selected_candidate_xs, axis=0)

@@ -65,7 +65,7 @@ class MeshGridObjectiveFunction(core.ObjectiveFunction):
         else:
             return tuple(
                 core.Boundary(min_x[i], max_x[i], dtype=self._dtype_to_python_type(self._xs.dtype))
-                for i in range(self._xs.ndim)
+                for i in range(self._xs.shape[1])
             )
 
     def plot(self, axis: matplotlib.axes.Axes, *xs: jax.Array) -> None:

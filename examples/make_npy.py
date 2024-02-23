@@ -6,7 +6,7 @@ if __name__ == "__main__":
     import jax.experimental
     import numpy as np
     import argparse
-    import tqdm
+    import jax_tqdm
     import platform
     import jaxlib.xla_extension
 
@@ -33,6 +33,7 @@ if __name__ == "__main__":
         type=str,
         default=None,
     )
+    argument_parser.add_argument("--fallback", action="store_true")
 
     arguments = argument_parser.parse_args()
 
@@ -74,8 +75,6 @@ if __name__ == "__main__":
             objective_function
         )
 
-        key = jax.random.PRNGKey(0)
-
         mesh_grid = objective_functions.utils.get_mesh_grid(
             [
                 (boundary, arguments.resolution)
@@ -85,38 +84,45 @@ if __name__ == "__main__":
         )
         ticks = tuple(
             np.asarray(
-                objective_functions.utils.get_ticks(
-                    boundary, arguments.resolution)
+                objective_functions.utils.get_ticks(boundary, arguments.resolution)
             )
             for boundary in objective_function.dataset_bounds
         )
         grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
 
-        try:
-            grid_ys = np.asarray(
-                objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
-            )
-        except jaxlib.xla_extension.XlaRuntimeError:
-            grid_ys = np.asarray(
-                [
-                    objective_function.evaluate(
-                        jax.random.PRNGKey(0),
-                        *(
-                            grid_xs[ii: ii + 1, iii]
-                            for iii in range(len(objective_function.dataset_bounds))
-                        ),
+        def fallback(grid_xs):
+            @jax.jit
+            def evaluate(xs: jax.Array) -> jax.Array:
+
+                @jax_tqdm.loop_tqdm(len(grid_xs))
+                def body_fun(i, val):
+                    return val.at[i].set(
+                        objective_function.evaluate(
+                            jax.random.PRNGKey(0),
+                            *(xs[i, j] for j in range(len(xs[i]))),
+                        )
                     )
-                    for ii in tqdm.tqdm(
-                        range(grid_xs.shape[0]),
-                        total=grid_xs.shape[0],
-                        desc="Loading grid objective function values...",
-                    )
-                ]
-            )
+
+                return jax.lax.fori_loop(
+                    0,
+                    len(grid_xs),
+                    body_fun,
+                    init_val=jnp.zeros((len(grid_xs),)),
+                )
+
+            grid_ys = evaluate(grid_xs)
             grid_ys = grid_ys.reshape(
-                (arguments.resolution,) *
-                len(objective_function.dataset_bounds)
+                (arguments.resolution,) * len(objective_function.dataset_bounds)
             )
+            return grid_ys
+
+        if arguments.fallback:
+            grid_ys = fallback(grid_xs)
+        else:
+            try:
+                grid_ys = objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
+            except jaxlib.xla_extension.XlaRuntimeError:
+                grid_ys = fallback(grid_xs)
 
         jnp.save(os.path.join(save_path, "grid_xs.npy"), ticks)
         jnp.save(os.path.join(save_path, "grid_ys.npy"), grid_ys)

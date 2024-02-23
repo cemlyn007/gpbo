@@ -27,6 +27,7 @@ dependencies = [
 dev = ["pytest"]
 examples = [
   "tqdm",
+  "jax-tqdm",
 ]
 
 [tool.semantic_release]

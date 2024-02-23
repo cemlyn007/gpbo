@@ -79,7 +79,7 @@ if __name__ == "__main__":
         type=str,
         default="univariate",
         help="Objective function to use, options are univariate, six_hump_camel, mnist_1d, mnist_2d and npy",
-        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d", "npy"],
+        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d", "mnist_3d", "npy"],
     )
     argument_parser.add_argument(
         "--noisy_objective_function",
@@ -205,11 +205,15 @@ if __name__ == "__main__":
                 objective_function = objective_functions.SixHumpCamelObjectiveFunction()
             elif arguments.objective_function == "mnist_1d":
                 objective_function = objective_functions.MnistObjectiveFunction(
-                    "/tmp/mnist", False, 100, jax.devices()[0]
+                    "/tmp/mnist", False, False, 100, jax.devices()[0]
                 )
             elif arguments.objective_function == "mnist_2d":
                 objective_function = objective_functions.MnistObjectiveFunction(
-                    "/tmp/mnist", True, 100, jax.devices()[0]
+                    "/tmp/mnist", True, False, 100, jax.devices()[0]
+                )
+            elif arguments.objective_function == "mnist_3d":
+                objective_function = objective_functions.MnistObjectiveFunction(
+                    "/tmp/mnist", True, True, 100, jax.devices()[0]
                 )
             else:
                 raise ValueError(

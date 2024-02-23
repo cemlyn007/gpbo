@@ -163,6 +163,7 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
         self,
         cache_directory: str,
         add_momentum_dimension: bool,
+        add_learning_rate_decay: bool,
         n_epochs: int,
         device: jax.Device,
     ) -> None:
@@ -179,12 +180,18 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
         )
         self._test_labels = self._dataset.load_test_labels(device)
         self._add_momentum_dimension = add_momentum_dimension
+        self._add_learning_rate_decay = add_learning_rate_decay
+        if self._add_learning_rate_decay and not self._add_momentum_dimension:
+            raise NotImplementedError(
+                "Learning rate decay is only implemented for the case where add_momentum_dimension is True"
+            )
 
     def evaluate(
         self,
         key: jax.Array,
         log_learning_rates: jax.Array,
         log_momentums: jax.Array | None = None,
+        log_last_learning_rates: jax.Array | None = None,
     ) -> jax.Array:
         learning_rates = jnp.exp(log_learning_rates)
         keys = (
@@ -209,9 +216,32 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
                     f"learning_rates and momentums must have the same dtype. learning_rates.dtype: {learning_rates.dtype}, momentums.dtype: {momentums.dtype}"
                 )
             # else...
-            return jax.vmap(self._single_evaluate, in_axes=(0, 0, 0, None))(
-                keys, learning_rates.flatten(), momentums.flatten(), dtype  # type: ignore
-            ).reshape(learning_rates.shape)
+            if self._add_learning_rate_decay:
+                if log_last_learning_rates is None:
+                    raise ValueError(
+                        "log_last_learning_rates cannot be None when add_learning_rate_decay is True"
+                    )
+                # else...
+                last_learning_rates = jnp.exp(log_last_learning_rates)
+                if learning_rates.shape != last_learning_rates.shape:
+                    raise ValueError(
+                        f"learning_rates and last_learning_rates must have the same shape. learning_rates.shape: {learning_rates.shape}, last_learning_rates.shape: {last_learning_rates.shape}"
+                    )
+                if learning_rates.dtype != last_learning_rates.dtype:
+                    raise ValueError(
+                        f"learning_rates and last_learning_rates must have the same dtype. learning_rates.dtype: {learning_rates.dtype}, last_learning_rates.dtype: {last_learning_rates.dtype}"
+                    )
+                return jax.vmap(self._single_evaluate, in_axes=(0, 0, 0, 0, None))(
+                    keys,
+                    learning_rates.flatten(),
+                    momentums.flatten(),
+                    last_learning_rates.flatten(),
+                    dtype,  # type: ignore
+                ).reshape(learning_rates.shape)
+            else:
+                return jax.vmap(self._single_evaluate, in_axes=(0, 0, 0, None))(
+                    keys, learning_rates.flatten(), momentums.flatten(), dtype  # type: ignore
+                ).reshape(learning_rates.shape)
         else:
             return jax.vmap(self._single_evaluate, in_axes=(0, 0, None, None))(
                 keys, learning_rates.flatten(), None, dtype  # type: ignore
@@ -222,11 +252,16 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
         rng: jax.Array,
         learning_rate: float,
         momentum: float | None,
+        last_learning_rate: float | None,
         dtype: jnp.dtype,
     ):
         """Creates initial `TrainState`."""
         cnn = CNN()
         params = cnn.init(rng, jnp.ones([1, 28, 28, 1], dtype=dtype))["params"]
+        if last_learning_rate is None:
+            tx = optax.sgd(learning_rate, momentum, accumulator_dtype=dtype)
+        else:
+            tx = optax.sgd(optax.linear_schedule(learning_rate, last_learning_rate, self._n_epochs), momentum, accumulator_dtype=dtype)
         tx = optax.sgd(learning_rate, momentum, accumulator_dtype=dtype)
         return train_state.TrainState.create(apply_fn=cnn.apply, params=params, tx=tx)
 
@@ -235,10 +270,11 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
         key: jax.Array,
         learning_rate: float,
         momentum: float | None,
+        last_learning_rate: float | None,
         dtype: jnp.dtype,
     ) -> jax.Array:
         init_key, sample_key = jax.random.split(key)
-        state = self._create_train_state(init_key, learning_rate, momentum, dtype)
+        state = self._create_train_state(init_key, learning_rate, momentum, last_learning_rate, dtype)
 
         def train_step(
             i: int, val: tuple[jax.Array, train_state.TrainState]
@@ -290,6 +326,8 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
         ]  # Learning Rate
         if self._add_momentum_dimension:
             bounds.append(core.Boundary(math.log(1e-3), math.log(1e-0), float))
+        if self._add_learning_rate_decay:
+            bounds.append(core.Boundary(math.log(1e-7), math.log(1e-0), float))
         return tuple(bounds)
 
     def plot(self, axis: matplotlib.axes.Axes, xs: jax.Array, ys: jax.Array) -> None:

@@ -28,19 +28,22 @@ class AcquisitionFunction(abc.ABC):
         pass
 
 
+def expected_improvement(mean: jax.Array, std: jax.Array, min_y: jax.Array) -> jax.Array:
+    gamma = (min_y - mean) / std
+    utility = std * (
+        gamma * jax.scipy.stats.norm.cdf(gamma) +
+        jax.scipy.stats.norm.pdf(gamma)
+    )
+    return utility
+
+
 class ExpectedImprovement(AcquisitionFunction):
     def __call__(self, kernel: kernels.Kernel,
                  state: kernels.State,
                  dataset: datasets.Dataset,
-                 xs: jax.Array,) -> jax.Array:
-        mean, std = gaussian_process.get_mean_and_std(
-            kernel, state, dataset, xs)
-        gamma = (jnp.min(dataset.ys) - mean) / std
-        utility = std * (
-            gamma * jax.scipy.stats.norm.cdf(gamma) +
-            jax.scipy.stats.norm.pdf(gamma)
-        )
-        return utility
+                 xs: jax.Array) -> jax.Array:
+        mean, std = gaussian_process.get_mean_and_std(kernel, state, dataset, xs)
+        return expected_improvement(mean, std, jnp.min(dataset.ys))
 
     def compute_arg_sort(
         self,
@@ -66,7 +69,7 @@ class LowerConfidenceBound(AcquisitionFunction):
     def __call__(self, kernel: kernels.Kernel,
                  state: kernels.State,
                  dataset: datasets.Dataset,
-                 xs: jax.Array,) -> jax.Array:
+                 xs: jax.Array) -> jax.Array:
         mean, std = gaussian_process.get_mean_and_std(
             kernel, state, dataset, xs)
         utility = -1 * (mean - jnp.sqrt(self._confidence_rate) * std)

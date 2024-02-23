@@ -321,6 +321,7 @@ def multi_optimize(
     use_auto_grad: bool = False,
     verbose: bool = False,
 ) -> tuple[kernels.State, jax.Array]:
+    total_states = len(initial_states)
     initial_state = initial_states[0]
     initial_states = jax.tree_map(lambda *xs: jnp.stack(xs), *initial_states)
 
@@ -340,6 +341,8 @@ def multi_optimize(
             verbose,
         )
         log_marginal_likelihood = get_log_marginal_likelihood(kernel, state, dataset)
+        if verbose:
+            jax.debug.print("i={i}, log_marginal_likelihood={log_marginal_likelihood}\n", i=i, log_marginal_likelihood=log_marginal_likelihood)
         better = log_marginal_likelihood > best_log_marginal_likelihood
         ok_and_better = jnp.logical_and(ok, better)
         best_state = jax.tree_map(lambda x, y: jnp.where(ok_and_better, x, y), state, best_state)
@@ -348,4 +351,4 @@ def multi_optimize(
         assert isinstance(best_log_marginal_likelihood, jax.Array)
         return (best_state, best_log_marginal_likelihood)
 
-    return jax.lax.fori_loop(0, len(initial_states), body_fun, (initial_state, -jnp.inf))
+    return jax.lax.fori_loop(0, total_states, body_fun, (initial_state, -jnp.inf))

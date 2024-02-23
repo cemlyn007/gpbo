@@ -381,21 +381,26 @@ if __name__ == "__main__":
                 if arguments.optimizer_random_starts > 0:
                     optimize_keys = jax.random.split(jax.random.PRNGKey(i), arguments.optimizer_random_starts * 3)
                     optimize_keys = jnp.reshape(optimize_keys, (arguments.optimizer_random_starts, 3, -1))
+                    optimize_states = [state] + [kernels.State(
+                        jax.random.uniform(keys[0], minval=bounds[0].log_amplitude, maxval=bounds[1].log_amplitude),
+                        jax.random.uniform(keys[1], minval=bounds[0].log_length_scale,
+                                           maxval=bounds[1].log_length_scale),
+                        jax.random.uniform(keys[2], minval=bounds[0].log_noise_scale,
+                                           maxval=bounds[1].log_noise_scale),
+                    ) for keys in optimize_keys]
                 else:
-                    optimize_keys = []
+                    optimize_states = [state]
+                print(i, len(optimize_states))
                 new_state, ok = multi_optimize(
                     kernel,
-                    [state] + [kernels.State(
-                        jax.random.uniform(keys[0], minval=bounds[0].log_amplitude, maxval=bounds[1].log_amplitude),
-                        jax.random.uniform(keys[1], minval=bounds[0].log_length_scale, maxval=bounds[1].log_length_scale),
-                        jax.random.uniform(keys[2], minval=bounds[0].log_noise_scale, maxval=bounds[1].log_noise_scale),
-                    ) for keys in optimize_keys],
+                    optimize_states,
                     transformed_dataset,
                     arguments.optimize_max_iterations,
                     arguments.optimize_tolerance,
                     bounds,
                     arguments.optimize_penalty,
                     use_auto_grad=arguments.use_auto_grad,
+                    verbose=False,
                 )
                 if ok:
                     state = new_state

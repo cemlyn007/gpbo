@@ -75,6 +75,12 @@ if __name__ == "__main__":
             objective_function
         )
 
+        ticks = tuple(
+            np.asarray(
+                objective_functions.utils.get_ticks(boundary, arguments.resolution)
+            )
+            for boundary in objective_function.dataset_bounds
+        )
         mesh_grid = objective_functions.utils.get_mesh_grid(
             [
                 (boundary, arguments.resolution)
@@ -82,13 +88,7 @@ if __name__ == "__main__":
             ],
             False,
         )
-        ticks = tuple(
-            np.asarray(
-                objective_functions.utils.get_ticks(boundary, arguments.resolution)
-            )
-            for boundary in objective_function.dataset_bounds
-        )
-        grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
+        grid_xs = jnp.c_[*(jnp.ravel(x) for x in mesh_grid)]
 
         def fallback(grid_xs):
             @jax.jit

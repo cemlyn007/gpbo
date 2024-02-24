@@ -239,12 +239,12 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
                     dtype,  # type: ignore
                 ).reshape(learning_rates.shape)
             else:
-                return jax.vmap(self._single_evaluate, in_axes=(0, 0, 0, None))(
-                    keys, learning_rates.flatten(), momentums.flatten(), dtype  # type: ignore
+                return jax.vmap(self._single_evaluate, in_axes=(0, 0, 0, None, None))(
+                    keys, learning_rates.flatten(), momentums.flatten(), None, dtype  # type: ignore
                 ).reshape(learning_rates.shape)
         else:
-            return jax.vmap(self._single_evaluate, in_axes=(0, 0, None, None))(
-                keys, learning_rates.flatten(), None, dtype  # type: ignore
+            return jax.vmap(self._single_evaluate, in_axes=(0, 0, None, None, None))(
+                keys, learning_rates.flatten(), None, None, dtype  # type: ignore
             ).reshape(learning_rates.shape)
 
     def _create_train_state(

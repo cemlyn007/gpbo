@@ -259,10 +259,10 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
         cnn = CNN()
         params = cnn.init(rng, jnp.ones([1, 28, 28, 1], dtype=dtype))["params"]
         if last_learning_rate is None:
-            tx = optax.sgd(learning_rate, momentum, accumulator_dtype=dtype)
+            sgd_learning_rate = learning_rate
         else:
-            tx = optax.sgd(optax.linear_schedule(learning_rate, last_learning_rate, self._n_epochs), momentum, accumulator_dtype=dtype)
-        tx = optax.sgd(learning_rate, momentum, accumulator_dtype=dtype)
+            sgd_learning_rate = optax.linear_schedule(learning_rate, last_learning_rate, self._n_epochs)
+        tx = optax.sgd(sgd_learning_rate, momentum, accumulator_dtype=dtype)
         return train_state.TrainState.create(apply_fn=cnn.apply, params=params, tx=tx)
 
     def _single_evaluate(

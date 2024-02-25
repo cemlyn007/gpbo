@@ -56,6 +56,10 @@ class ExpectedImprovement(AcquisitionFunction):
         return jnp.flip(jnp.argsort(utility))
 
 
+def lower_confidence_bound(mean: jax.Array, std: jax.Array, confidence_rate: jax.Array) -> jax.Array:
+    return -1 * (mean - jnp.sqrt(confidence_rate) * std)
+
+
 class LowerConfidenceBound(AcquisitionFunction):
     def __init__(self, confidence_rate: float) -> None:
         super(LowerConfidenceBound, self).__init__()
@@ -72,7 +76,7 @@ class LowerConfidenceBound(AcquisitionFunction):
                  xs: jax.Array) -> jax.Array:
         mean, std = gaussian_process.get_mean_and_std(
             kernel, state, dataset, xs)
-        utility = -1 * (mean - jnp.sqrt(self._confidence_rate) * std)
+        utility = lower_confidence_bound(mean, std, self._confidence_rate)
         return utility
 
     def compute_arg_sort(

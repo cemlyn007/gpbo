@@ -83,9 +83,9 @@ if __name__ == "__main__":
         "--objective_function",
         type=str,
         default="univariate",
-        help="Objective function to use, options are univariate and six_hump_camel",
+        help="Objective function to use, options are univariate, six_hump_camel, mnist_1d, mnist_2d, mnist_3d and npy",
         choices=["univariate", "six_hump_camel",
-                 "mnist_1d", "mnist_2d", "npy"],
+                 "mnist_1d", "mnist_2d", "mnist_3d", "npy"],
     )
     argument_parser.add_argument(
         "--noisy_objective_function",
@@ -218,10 +218,11 @@ if __name__ == "__main__":
             )
 
         if arguments.acquisition_function == "expected_improvement":
-            acquisition_function = acquisition_functions.ExpectedImprovement()
+            acquisition_function = lambda mean, std, dataset: acquisition_functions.expected_improvement(
+                mean, std, jnp.min(dataset.ys)
+            )
         elif arguments.acquisition_function == "lower_confidence_bound":
-            acquisition_function = acquisition_functions.LowerConfidenceBound(
-                0.5)
+            acquisition_function = lambda mean, std: acquisition_functions.lower_confidence_bound(mean, std, jnp.array(0.5))
         else:
             raise ValueError(
                 f"Unknown acquisition function: {arguments.acquisition_function}"
@@ -307,7 +308,7 @@ if __name__ == "__main__":
             if len(objective_function.dataset_bounds) == 1:
                 grid_xs = jnp.dstack(mesh_grid).flatten()
             else:
-                grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
+                grid_xs = jnp.c_[*(jnp.ravel(x) for x in mesh_grid)]
             try:
                 grid_ys = np.asarray(
                     objective_function.evaluate(jax.random.PRNGKey(0), *mesh_grid)
@@ -346,12 +347,13 @@ if __name__ == "__main__":
             assert xs.shape == (arguments.initial_dataset_size,)
             assert ys.shape == (arguments.initial_dataset_size,)
         else:
-            assert grid_xs.shape == (arguments.plot_resolution ** len(objective_function.dataset_bounds), len(objective_function.dataset_bounds))
+            assert grid_xs.shape == (arguments.plot_resolution **
+                                     len(objective_function.dataset_bounds), len(objective_function.dataset_bounds))
             assert grid_ys.shape == (arguments.plot_resolution,) * len(objective_function.dataset_bounds)
-            assert candidates.shape == (arguments.plot_resolution ** len(objective_function.dataset_bounds), len(objective_function.dataset_bounds))
+            assert candidates.shape == (arguments.plot_resolution **
+                                        len(objective_function.dataset_bounds), len(objective_function.dataset_bounds))
             assert xs.shape == (arguments.initial_dataset_size, len(objective_function.dataset_bounds))
             assert ys.shape == (arguments.initial_dataset_size,)
-
 
         dataset = datasets.Dataset(xs, ys)
         (
@@ -363,18 +365,89 @@ if __name__ == "__main__":
         tried_candidate_indices = []
 
         multi_optimize = jax.jit(gaussian_process.multi_optimize,
-                           static_argnums=(0, 3, 4, 6, 7, 8))
+                                 static_argnums=(0, 3, 4, 6, 7, 8))
         get_mean_and_std = jax.jit(
             gaussian_process.get_mean_and_std, static_argnums=(0,)
         )
-        get_candidate_indices = jax.jit(
-            acquisition_function.compute_arg_sort, static_argnums=(0,)
-        )
-        get_candidate_utilities = jax.jit(
-            acquisition_function.__call__, static_argnums=(0,))
+
+        acquisition_function = jax.jit(acquisition_function)
 
         cpu_device = jax.devices("cpu")[0]
         util_device = jax.devices()[0]
+
+        class Utility:
+            def __init__(self, initial_batch_size: int) -> None:
+                self._device = util_device
+                self._initial_batch_size = initial_batch_size
+                self._batch_size = initial_batch_size
+
+            def get_candidate_utilities(self, mean, std, dataset):
+                total_candidates = mean.shape[0]
+                self._batch_size = min(self._batch_size, total_candidates)
+                mean = jax.device_put(mean, self._device)
+                std = jax.device_put(std, self._device)
+                dataset = jax.device_put(dataset, self._device)
+                while True:
+                    total_batches, remainder = divmod(total_candidates, self._batch_size)
+                    if remainder > 0:
+                        raise ValueError("Failed to get candidate utilities")
+                    batched_mean = mean.reshape(total_batches, self._batch_size)
+                    batched_std = std.reshape(total_batches, self._batch_size)
+                    try:
+                        return jnp.concatenate(
+                            [acquisition_function(
+                                batch_mean, batch_std, dataset
+                            ) for batch_mean, batch_std in tqdm.tqdm(zip(batched_mean, batched_std), desc="Getting candidate utilities", total=total_batches)],
+                            axis=None,
+                        ).flatten()
+                    except jaxlib.xla_extension.XlaRuntimeError:
+                        self._batch_size = self._batch_size // 2
+                        if self._batch_size == 0:
+                            if self._device == cpu_device:
+                                raise ValueError("Failed to get candidate utilities")
+                            # else...
+                            self._device = cpu_device
+                            self._batch_size = min(total_candidates, self._initial_batch_size)
+
+        class DynamicGetMeanAndStd:
+            def __init__(self, initial_batch_size: int) -> None:
+                self._device = util_device
+                self._initial_batch_size = initial_batch_size
+                self._batch_size = initial_batch_size
+
+            def get_mean_and_std(self, kernel: kernels.Kernel,
+                                 state: kernels.State,
+                                 dataset: datasets.Dataset,
+                                 xs: jax.Array):
+                total_candidates = xs.shape[0]
+                self._batch_size = min(self._batch_size, xs.shape[0])
+                state = jax.device_put(state, self._device)
+                dataset = jax.device_put(dataset, self._device)
+                xs = jax.device_put(xs, self._device)
+                while True:
+                    batched_xs = xs.reshape(-1, self._batch_size, xs.shape[-1])
+                    try:
+                        batched_means_and_stds = [get_mean_and_std(
+                            kernel, state, dataset, batch_xs
+                        ) for batch_xs in tqdm.tqdm(batched_xs, desc="Getting mean and std")]
+                        return tuple(
+                            jnp.concatenate(
+                                [mean_and_std[i] for mean_and_std in batched_means_and_stds],
+                                axis=None,
+                            ).flatten()
+                            for i in range(2)
+                        )
+                    except jaxlib.xla_extension.XlaRuntimeError:
+                        self._batch_size = self._batch_size // 2
+                        if self._batch_size == 0:
+                            if self._device == cpu_device:
+                                raise ValueError("Failed to get candidate utilities")
+                            # else...
+                            self._device = cpu_device
+                            self._batch_size = min(total_candidates, self._initial_batch_size)
+
+        dynamic_get_mean_and_std = DynamicGetMeanAndStd(100000)
+        utility_function = Utility(100000)
 
         min_y_figure = plt.figure(tight_layout=True, figsize=(4, 4))
         figure = plt.figure(tight_layout=True, figsize=(12, 4))
@@ -413,27 +486,20 @@ if __name__ == "__main__":
 
                 print(i, state)
 
-                transformed_candidates = transformer.transform_values(
-                    candidates,
-                    None if dataset_center is None else dataset_center.xs,
-                    None if dataset_scale is None else dataset_scale.xs,
-                )
+                if i == 0:
+                    transformed_candidates = transformer.transform_values(
+                        candidates,
+                        None if dataset_center is None else dataset_center.xs,
+                        None if dataset_scale is None else dataset_scale.xs,
+                    )
+                    transformed_mean, transformed_std = dynamic_get_mean_and_std.get_mean_and_std(kernel, state, transformed_dataset, transformed_candidates)
+                    candidate_utilities = utility_function.get_candidate_utilities(
+                        transformed_mean,
+                        transformed_std,
+                        transformed_dataset,
+                    )
 
-                try:
-                    best_candidate_indices = get_candidate_indices(
-                        kernel,
-                        jax.device_put(state, util_device),
-                        jax.device_put(transformed_dataset, util_device),
-                        jax.device_put(transformed_candidates, util_device),
-                    )
-                except jaxlib.xla_extension.XlaRuntimeError:
-                    util_device = cpu_device
-                    best_candidate_indices = get_candidate_indices(
-                        kernel,
-                        jax.device_put(state, cpu_device),
-                        jax.device_put(transformed_dataset, cpu_device),
-                        jax.device_put(transformed_candidates, cpu_device),
-                    )
+                best_candidate_indices = jnp.argsort(candidate_utilities, axis=None)
 
                 best_candidate_index = None
                 for j in range(best_candidate_indices.shape[0]):
@@ -462,7 +528,7 @@ if __name__ == "__main__":
 
                 key = jax.random.PRNGKey(0)
                 selected_candidate_ys = objective_function.evaluate(key, *xs_args)
-                
+
                 if len(objective_function.dataset_bounds) == 1:
                     selected_candidate_xs = jnp.expand_dims(selected_candidate_xs, axis=0)
                     selected_candidate_ys = jnp.expand_dims(selected_candidate_ys, axis=0)
@@ -485,29 +551,16 @@ if __name__ == "__main__":
                     dataset_scale,
                 ) = transformer.transform_dataset(dataset)
 
-                try:                
-                    transformed_mean, transformed_std = get_mean_and_std(
-                        kernel,
-                        jax.device_put(state, util_device),
-                        jax.device_put(transformed_dataset, util_device),
-                        transformer.transform_values(
-                            jax.device_put(grid_xs, util_device),
-                            None if dataset_center is None else dataset_center.xs,
-                            None if dataset_scale is None else dataset_scale.xs,
-                        ),
-                    )
-                except jaxlib.xla_extension.XlaRuntimeError:
-                    util_device = cpu_device
-                    transformed_mean, transformed_std = get_mean_and_std(
-                        kernel,
-                        jax.device_put(state, cpu_device),
-                        jax.device_put(transformed_dataset, cpu_device),
-                        transformer.transform_values(
-                            jax.device_put(grid_xs, cpu_device),
-                            None if dataset_center is None else dataset_center.xs,
-                            None if dataset_scale is None else dataset_scale.xs,
-                        ),
-                    )
+                transformed_mean, transformed_std = dynamic_get_mean_and_std.get_mean_and_std(
+                    kernel,
+                    state,
+                    transformed_dataset,
+                    transformer.transform_values(
+                        candidates,
+                        None if dataset_center is None else dataset_center.xs,
+                        None if dataset_scale is None else dataset_scale.xs,
+                    ),
+                )
 
                 mean = transformer.inverse_transform_values(
                     transformed_mean,
@@ -518,6 +571,12 @@ if __name__ == "__main__":
                     transformed_std,
                     None if dataset_center is None else dataset_center.ys,
                     None if dataset_scale is None else dataset_scale.ys,
+                )
+
+                candidate_utilities = utility_function.get_candidate_utilities(
+                    mean,
+                    std,
+                    dataset,
                 )
 
                 mean = np.asarray(
@@ -535,23 +594,7 @@ if __name__ == "__main__":
                 )
                 std = np.where(np.isfinite(std), std, -1.0)
 
-                try:
-                    candidate_utilities = get_candidate_utilities(
-                        kernel,
-                        jax.device_put(state, util_device),
-                        jax.device_put(transformed_dataset, util_device),
-                        jax.device_put(transformed_candidates, util_device),
-                    )
-                except jaxlib.xla_extension.XlaRuntimeError:
-                    util_device = cpu_device
-                    candidate_utilities = get_candidate_utilities(
-                        kernel,
-                        jax.device_put(state, util_device),
-                        jax.device_put(transformed_dataset, util_device),
-                        jax.device_put(transformed_candidates, util_device),
-                    )
-
-                candidate_utilities = np.asarray(
+                np_candidate_utilities = np.asarray(
                     candidate_utilities.reshape(
                         (arguments.plot_resolution,)
                         * len(objective_function.dataset_bounds)
@@ -559,16 +602,17 @@ if __name__ == "__main__":
                 )
 
                 figure.clear()
-                render.plot(
-                    ticks,
-                    grid_ys,
-                    mean,
-                    std,
-                    candidate_utilities,
-                    np.asarray(dataset.xs),
-                    np.asarray(dataset.ys),
-                    figure,
-                )
+                if len(objective_function.dataset_bounds) < 3:
+                    render.plot(
+                        ticks,
+                        grid_ys,
+                        mean,
+                        std,
+                        candidate_utilities,
+                        np.asarray(dataset.xs),
+                        np.asarray(dataset.ys),
+                        figure,
+                    )
                 min_y_figure.clear()
                 ax = min_y_figure.add_subplot()
                 ax.plot([dataset.ys[:i].min() for i in range(1, dataset.ys.shape[0] + 1)])
@@ -585,6 +629,6 @@ if __name__ == "__main__":
                 np.save(os.path.join(step_save_path, "mean.npy"), mean)
                 np.save(os.path.join(step_save_path, "std.npy"), std)
                 jnp.save(os.path.join(step_save_path, "utility.npy"),
-                         candidate_utilities)
+                         np_candidate_utilities)
         finally:
             plt.close(figure)

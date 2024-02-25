@@ -59,4 +59,4 @@ def get_mesh_grid(
         get_ticks(boundary, number_of_points)
         for boundary, number_of_points in boundary_ticks
     )
-    return jnp.meshgrid(*grid_points, sparse=sparse)
+    return jnp.meshgrid(*grid_points, sparse=sparse, indexing="ij")

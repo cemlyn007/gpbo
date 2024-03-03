@@ -52,11 +52,11 @@ def get_ticks(
 
 
 def get_mesh_grid(
-    boundary_ticks: Iterable[tuple[core.Boundary, int]], sparse: bool
+    boundary_ticks: Iterable[tuple[core.Boundary, int]], sparse: bool, indexing='xy'
 ) -> list[jax.Array]:
     """Note that when dealing with integer dtypes, the number of points is not guaranteed to be respected."""
     grid_points = (
         get_ticks(boundary, number_of_points)
         for boundary, number_of_points in boundary_ticks
     )
-    return jnp.meshgrid(*grid_points, sparse=sparse)
+    return jnp.meshgrid(*grid_points, sparse=sparse, indexing=indexing)

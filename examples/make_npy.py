@@ -87,6 +87,7 @@ if __name__ == "__main__":
                 for boundary in objective_function.dataset_bounds
             ],
             False,
+            indexing='ij',
         )
         grid_xs = jnp.c_[*(jnp.ravel(x) for x in mesh_grid)]
 

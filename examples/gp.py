@@ -447,16 +447,17 @@ if __name__ == "__main__":
             std = np.where(np.isfinite(std), std, -1.0)
 
             figure.clear()
-            render.plot(
-                ticks,
-                grid_ys,
-                mean,
-                std,
-                None,
-                np.asarray(dataset.xs),
-                np.asarray(dataset.ys),
-                figure,
-            )
+            if len(objective_function.dataset_bounds) < 3:
+                render.plot(
+                    ticks,
+                    grid_ys,
+                    mean,
+                    std,
+                    None,
+                    np.asarray(dataset.xs),
+                    np.asarray(dataset.ys),
+                    figure,
+                )
             step_save_path = os.path.join(save_path, str(i))
             if not os.path.exists(step_save_path):
                 os.makedirs(step_save_path, exist_ok=True)

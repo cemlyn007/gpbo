@@ -19,6 +19,7 @@ if __name__ == "__main__":
     import tqdm
     import platform
     import jaxlib.xla_extension
+    import shutil
 
     argument_parser = argparse.ArgumentParser("Gaussian Process Example")
 
@@ -477,6 +478,12 @@ if __name__ == "__main__":
             )
             np.save(os.path.join(step_save_path, "mean.npy"), mean)
             np.save(os.path.join(step_save_path, "std.npy"), std)
+
+            for filename in ["figure.png", "dataset.csv", "mean.npy", "std.npy"]:
+                shutil.copyfile(
+                    os.path.join(step_save_path, filename),
+                    os.path.join(save_path, filename),
+                )
 
     plt.close(figure)
 

@@ -608,7 +608,7 @@ if __name__ == "__main__":
                         grid_ys,
                         mean,
                         std,
-                        candidate_utilities,
+                        np_candidate_utilities,
                         np.asarray(dataset.xs),
                         np.asarray(dataset.ys),
                         figure,

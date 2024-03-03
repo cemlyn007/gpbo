@@ -6,3 +6,4 @@ from gpbo._src import objective_functions
 from gpbo._src import scalers
 from gpbo._src import transformers
 from gpbo._src import io
+from gpbo._src import engines as experimental_engines

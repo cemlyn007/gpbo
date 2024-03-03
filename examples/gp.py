@@ -8,6 +8,7 @@ if __name__ == "__main__":
         datasets,
         transformers,
         io,
+        experimental_engines
     )
     import jax.numpy as jnp
     import jax.random
@@ -343,6 +344,8 @@ if __name__ == "__main__":
 
         util_device = jax.devices()[0]
 
+        dynamic_get_mean_and_std = experimental_engines.DynamicGetMeanAndStd(get_mean_and_std, 100000, util_device, cpu_device)
+
         for i in range(arguments.iterations):
             key, sample_key, evaluate_key = jax.random.split(key, 3)
             if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):
@@ -406,29 +409,16 @@ if __name__ == "__main__":
                 )
             )
 
-            try:
-                transformed_mean, transformed_std = get_mean_and_std(
-                    kernel,
-                    jax.device_put(state, util_device),
-                    jax.device_put(transformed_dataset, util_device),
-                    transformer.transform_values(
-                        jax.device_put(grid_xs, util_device),
-                        None if dataset_center is None else dataset_center.xs,
-                        None if dataset_scale is None else dataset_scale.xs,
-                    ),
-                )
-            except jaxlib.xla_extension.XlaRuntimeError:
-                util_device = cpu_device
-                transformed_mean, transformed_std = get_mean_and_std(
-                    kernel,
-                    jax.device_put(state, cpu_device),
-                    jax.device_put(transformed_dataset, cpu_device),
-                    transformer.transform_values(
-                        jax.device_put(grid_xs, cpu_device),
-                        None if dataset_center is None else dataset_center.xs,
-                        None if dataset_scale is None else dataset_scale.xs,
-                    ),
-                )
+            transformed_mean, transformed_std = dynamic_get_mean_and_std.get_mean_and_std(
+                kernel,
+                state,
+                transformed_dataset,
+                transformer.transform_values(
+                    grid_xs,
+                    None if dataset_center is None else dataset_center.xs,
+                    None if dataset_scale is None else dataset_scale.xs,
+                ),
+            )
 
             mean = transformer.inverse_transform_values(
                 transformed_mean,

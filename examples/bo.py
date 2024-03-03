@@ -25,6 +25,7 @@ if __name__ == "__main__":
     import argparse
     import jax.experimental
     import matplotlib.pyplot as plt
+    import shutil
 
     argument_parser = argparse.ArgumentParser(
         "Bayesian Optimization using a Gaussian Process Example"
@@ -560,5 +561,10 @@ if __name__ == "__main__":
                 np.save(os.path.join(step_save_path, "std.npy"), std)
                 jnp.save(os.path.join(step_save_path, "utility.npy"),
                          np_candidate_utilities)
+                for filename in ["figure.png", "min_y_figure.png", "dataset.csv", "mean.npy", "std.npy", "utility.npy"]:
+                    shutil.copyfile(
+                        os.path.join(step_save_path, filename),
+                        os.path.join(save_path, filename),
+                    )
         finally:
             plt.close(figure)

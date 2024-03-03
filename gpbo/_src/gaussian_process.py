@@ -43,7 +43,6 @@ def get_gradient_log_marginal_likelihood(
     L = jax.scipy.linalg.cho_factor(noised_covariance_matrix, lower=True)
     alpha = jax.scipy.linalg.cho_solve(L, dataset.ys)
     alpha = jnp.expand_dims(alpha, axis=-1)
-    inversed_noised_covariance_matrix = jax.scipy.linalg.cho_solve(L, identity)
 
     length_scale = kernels.length_scale(state)
 
@@ -75,7 +74,7 @@ def get_gradient_log_marginal_likelihood(
         lambda dkernel_dtheta: (
             0.5
             * jnp.trace(
-                (alpha @ alpha.T - inversed_noised_covariance_matrix) @ dkernel_dtheta
+                (alpha @ alpha.T @ dkernel_dtheta - jax.scipy.linalg.cho_solve(L, dkernel_dtheta))
             )
         ),
         dkernel_dstate,

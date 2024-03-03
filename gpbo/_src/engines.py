@@ -8,14 +8,16 @@ from typing import Callable
 
 
 class Utility:
-    def __init__(self, acquisition_function: Callable[[jax.Array, jax.Array, jax.Array], jax.Array], initial_batch_size: int, device: jax.Device, fallback_device: jax.Device) -> None:
+    def __init__(self, acquisition_function: Callable[[jax.Array, jax.Array, datasets.Dataset], jax.Array], initial_batch_size: int, device: jax.Device, fallback_device: jax.Device) -> None:
         self._acquisition_function = acquisition_function
         self._device = device
         self._fallback_device = fallback_device
         self._initial_batch_size = initial_batch_size
         self._batch_size = initial_batch_size
 
-    def get_candidate_utilities(self, mean, std, dataset):
+    def get_candidate_utilities(self, mean: jax.Array, std: jax.Array, dataset: datasets.Dataset) -> jax.Array:
+        if mean.ndim != 1 or std.ndim != 1:
+            raise ValueError("Mean and std must be 1D arrays")
         total_candidates = mean.shape[0]
         self._batch_size = min(self._batch_size, total_candidates)
         mean = jax.device_put(mean, self._device)
@@ -56,27 +58,34 @@ class DynamicGetMeanAndStd:
         self._initial_batch_size = initial_batch_size
         self._batch_size = initial_batch_size
 
-    def get_mean_and_std(self, kernel: kernels.Kernel,
-                            state: kernels.State,
-                            dataset: datasets.Dataset,
-                            xs: jax.Array):
+    def get_mean_and_std(self,
+                         kernel: kernels.Kernel,
+                         state: kernels.State,
+                         dataset: datasets.Dataset,
+                         xs: jax.Array) -> tuple[jax.Array, jax.Array]:
         total_candidates = xs.shape[0]
         self._batch_size = min(self._batch_size, xs.shape[0])
         state = jax.device_put(state, self._device)
         dataset = jax.device_put(dataset, self._device)
         xs = jax.device_put(xs, self._device)
         while True:
-            batched_xs = xs.reshape(-1, self._batch_size, xs.shape[-1])
+            if xs.ndim == 1:
+                batched_xs = xs.reshape(-1, self._batch_size)
+            else:
+                batched_xs = xs.reshape(-1, self._batch_size, xs.shape[-1])
             try:
                 batched_means_and_stds = [self._get_mean_and_std(
                     kernel, state, dataset, batch_xs
                 ) for batch_xs in tqdm.tqdm(batched_xs, desc="Getting mean and std")]
-                return tuple(
+                return (
                     jnp.concatenate(
-                        [mean_and_std[i] for mean_and_std in batched_means_and_stds],
+                        [mean_and_std[0] for mean_and_std in batched_means_and_stds],
                         axis=None,
-                    ).flatten()
-                    for i in range(2)
+                    ),
+                    jnp.concatenate(
+                        [mean_and_std[1] for mean_and_std in batched_means_and_stds],
+                        axis=None,
+                    )
                 )
             except jaxlib.xla_extension.XlaRuntimeError:
                 self._batch_size = self._batch_size // 2

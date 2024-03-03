@@ -282,7 +282,7 @@ if __name__ == "__main__":
                 )
                 for boundary in objective_function.dataset_bounds
             )
-            grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(mesh_grid))
+            grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(objective_function.dataset_bounds))
 
             try:
                 grid_ys = np.asarray(

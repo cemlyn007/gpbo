@@ -431,6 +431,7 @@ if __name__ == "__main__":
                     )
 
                 best_candidate_indices = jnp.argsort(candidate_utilities, axis=None)
+                best_candidate_indices = jnp.flip(best_candidate_indices)
 
                 best_candidate_index = None
                 for j in range(best_candidate_indices.shape[0]):

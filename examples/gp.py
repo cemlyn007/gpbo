@@ -72,9 +72,6 @@ if __name__ == "__main__":
         help="Cast 32-bit floating point for the objective function",
     )
     argument_parser.add_argument(
-        "--plot_throughout", action="store_true", help="Plot throughout"
-    )
-    argument_parser.add_argument(
         "--objective_function",
         type=str,
         default="univariate",
@@ -399,88 +396,87 @@ if __name__ == "__main__":
             print(i, state)
             assert ok.item(), f"Optimization failed on iteration {i}"
 
-            if arguments.plot_throughout or i == (arguments.iterations - 1):
-                negative_log_marginal_likelihoods_xs.append(i)
-                negative_log_marginal_likelihoods.append(
-                    -gaussian_process.get_log_marginal_likelihood(
-                        kernel,
-                        state,
-                        transformed_dataset,
-                    )
+            negative_log_marginal_likelihoods_xs.append(i)
+            negative_log_marginal_likelihoods.append(
+                -gaussian_process.get_log_marginal_likelihood(
+                    kernel,
+                    state,
+                    transformed_dataset,
+                )
+            )
+
+            try:
+                transformed_mean, transformed_std = get_mean_and_std(
+                    kernel,
+                    jax.device_put(state, util_device),
+                    jax.device_put(transformed_dataset, util_device),
+                    transformer.transform_values(
+                        jax.device_put(grid_xs, util_device),
+                        None if dataset_center is None else dataset_center.xs,
+                        None if dataset_scale is None else dataset_scale.xs,
+                    ),
+                )
+            except jaxlib.xla_extension.XlaRuntimeError:
+                util_device = cpu_device
+                transformed_mean, transformed_std = get_mean_and_std(
+                    kernel,
+                    jax.device_put(state, cpu_device),
+                    jax.device_put(transformed_dataset, cpu_device),
+                    transformer.transform_values(
+                        jax.device_put(grid_xs, cpu_device),
+                        None if dataset_center is None else dataset_center.xs,
+                        None if dataset_scale is None else dataset_scale.xs,
+                    ),
                 )
 
-                try:
-                    transformed_mean, transformed_std = get_mean_and_std(
-                        kernel,
-                        jax.device_put(state, util_device),
-                        jax.device_put(transformed_dataset, util_device),
-                        transformer.transform_values(
-                            jax.device_put(grid_xs, util_device),
-                            None if dataset_center is None else dataset_center.xs,
-                            None if dataset_scale is None else dataset_scale.xs,
-                        ),
-                    )
-                except jaxlib.xla_extension.XlaRuntimeError:
-                    util_device = cpu_device
-                    transformed_mean, transformed_std = get_mean_and_std(
-                        kernel,
-                        jax.device_put(state, cpu_device),
-                        jax.device_put(transformed_dataset, cpu_device),
-                        transformer.transform_values(
-                            jax.device_put(grid_xs, cpu_device),
-                            None if dataset_center is None else dataset_center.xs,
-                            None if dataset_scale is None else dataset_scale.xs,
-                        ),
-                    )
+            mean = transformer.inverse_transform_values(
+                transformed_mean,
+                None if dataset_center is None else dataset_center.ys,
+                None if dataset_scale is None else dataset_scale.ys,
+            )
+            std = transformer.inverse_transform_y_stds(
+                transformed_std,
+                None if dataset_center is None else dataset_center.ys,
+                None if dataset_scale is None else dataset_scale.ys,
+            )
 
-                mean = transformer.inverse_transform_values(
-                    transformed_mean,
-                    None if dataset_center is None else dataset_center.ys,
-                    None if dataset_scale is None else dataset_scale.ys,
+            mean = np.asarray(
+                mean.reshape(
+                    (arguments.plot_resolution,)
+                    * len(objective_function.dataset_bounds)
                 )
-                std = transformer.inverse_transform_y_stds(
-                    transformed_std,
-                    None if dataset_center is None else dataset_center.ys,
-                    None if dataset_scale is None else dataset_scale.ys,
-                )
+            )
 
-                mean = np.asarray(
-                    mean.reshape(
-                        (arguments.plot_resolution,)
-                        * len(objective_function.dataset_bounds)
-                    )
+            std = np.asarray(
+                std.reshape(
+                    (arguments.plot_resolution,)
+                    * len(objective_function.dataset_bounds)
                 )
+            )
+            std = np.where(np.isfinite(std), std, -1.0)
 
-                std = np.asarray(
-                    std.reshape(
-                        (arguments.plot_resolution,)
-                        * len(objective_function.dataset_bounds)
-                    )
-                )
-                std = np.where(np.isfinite(std), std, -1.0)
-
-                figure.clear()
-                render.plot(
-                    ticks,
-                    grid_ys,
-                    mean,
-                    std,
-                    None,
-                    np.asarray(dataset.xs),
-                    np.asarray(dataset.ys),
-                    figure,
-                )
-                step_save_path = os.path.join(save_path, str(i))
-                if not os.path.exists(step_save_path):
-                    os.makedirs(step_save_path, exist_ok=True)
-                
-                figure.savefig(os.path.join(step_save_path, "figure.png"))
-                io.write_csv(
-                    dataset,
-                    os.path.join(step_save_path, "dataset.csv"),
-                )
-                np.save(os.path.join(step_save_path, "mean.npy"), mean)
-                np.save(os.path.join(step_save_path, "std.npy"), std)
+            figure.clear()
+            render.plot(
+                ticks,
+                grid_ys,
+                mean,
+                std,
+                None,
+                np.asarray(dataset.xs),
+                np.asarray(dataset.ys),
+                figure,
+            )
+            step_save_path = os.path.join(save_path, str(i))
+            if not os.path.exists(step_save_path):
+                os.makedirs(step_save_path, exist_ok=True)
+            
+            figure.savefig(os.path.join(step_save_path, "figure.png"))
+            io.write_csv(
+                dataset,
+                os.path.join(step_save_path, "dataset.csv"),
+            )
+            np.save(os.path.join(step_save_path, "mean.npy"), mean)
+            np.save(os.path.join(step_save_path, "std.npy"), std)
 
     plt.close(figure)
 

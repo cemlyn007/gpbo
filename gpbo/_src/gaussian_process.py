@@ -20,13 +20,11 @@ def get_log_marginal_likelihood(
         )
     if dataset.ys.ndim != 1:
         raise ValueError(f"ys.ndim must be 1. ys.ndim: {dataset.ys.ndim}")
-    # Challenges for Gaussian processes - Imperial - Slide 5, Equation 7,
-    # contains more computationally efficient ways to compute the log marginal,
-    # that can be done using scipy cho_factor and cho_solve, however I found
-    # that this was not stable for my use case.
-    part_a = -0.5 * dataset.ys.T @ jnp.linalg.inv(covariance_matrix) @ dataset.ys
-    sign, slogdet = jnp.linalg.slogdet(covariance_matrix, method="lu")
-    part_b = -0.5 * sign * slogdet
+    # Challenges for Gaussian processes - Imperial - Slide 5, Equation 7:
+    L, lower = jax.scipy.linalg.cho_factor(covariance_matrix, lower=True)
+    x = jax.scipy.linalg.solve_triangular(L, dataset.ys, lower=lower)
+    part_a = -0.5 * dataset.ys.T @ jax.scipy.linalg.solve_triangular(L, x, lower=lower, trans='T')
+    part_b = -jnp.sum(jnp.log(jnp.diagonal(L)))
     return part_a + part_b
 
 

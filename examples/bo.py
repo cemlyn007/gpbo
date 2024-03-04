@@ -178,17 +178,15 @@ if __name__ == "__main__":
             raise ValueError(f"Unknown kernel: {arguments.kernel}")
 
         if arguments.objective_function == "npy":
-            grid_xs = jnp.load(arguments.grid_xs_npy_path)
+            ticks = jnp.load(arguments.grid_xs_npy_path)
             grid_ys = jnp.load(arguments.grid_ys_npy_path)
-            jnp.save(os.path.join(save_path, "grid_xs.npy"), grid_xs)
+            jnp.save(os.path.join(save_path, "ticks.npy"), ticks)
             jnp.save(os.path.join(save_path, "grid_ys.npy"), grid_ys)
-            if grid_xs.shape[0] == 1:
-                tmp = jnp.dstack(jnp.meshgrid(*grid_xs)).flatten()
+            if ticks.shape[0] == 1:
+                grid_xs = ticks.ravel()
             else:
-                tmp = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
-            objective_function = objective_functions.MeshGridObjectiveFunction(
-                tmp, grid_ys.flatten()
-            )
+                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(-1, ticks.shape[0])
+            objective_function = objective_functions.MeshGridObjectiveFunction(grid_xs, grid_ys.ravel())
         else:
             if arguments.objective_function == "univariate":
                 objective_function = objective_functions.UnivariateObjectiveFunction()
@@ -260,17 +258,17 @@ if __name__ == "__main__":
         }[arguments.transform]()
 
         if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):
-            indices = jax.random.randint(jax.random.PRNGKey(0), (arguments.initial_dataset_size, grid_xs.shape[0]), 0, grid_xs.shape[1])
-            xs = jnp.take_along_axis(grid_xs.T, indices, axis=0)
+            indices = jax.random.randint(jax.random.PRNGKey(0), (arguments.initial_dataset_size, ticks.shape[0]), 0, ticks.shape[1])
+            xs = jnp.take_along_axis(ticks, indices.T, axis=1).T # Sketchy
             if len(objective_function.dataset_bounds) == 1:
                 xs = jnp.reshape(xs, (arguments.initial_dataset_size,))
             ys = grid_ys[*indices.T]
-            ticks = tuple(np.array(grid_xs[i])
-                          for i in range(grid_xs.shape[0]))
-            if len(objective_function.dataset_bounds) == 1:
-                grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).flatten()
+
+            if ticks.shape[0] == 1:
+                grid_xs = ticks.ravel()
             else:
-                grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
+                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(-1, ticks.shape[0])
+            
             candidates = grid_xs
         else:
             xs = objective_functions.utils.sample(

@@ -188,15 +188,15 @@ if __name__ == "__main__":
 
         print(jnp.array(1, float).dtype)
         if arguments.objective_function == "npy":
-            grid_xs = jnp.load(arguments.grid_xs_npy_path)
+            ticks = jnp.load(arguments.grid_xs_npy_path)
             grid_ys = jnp.load(arguments.grid_ys_npy_path)
-            jnp.save(os.path.join(save_path, "grid_xs.npy"), grid_xs)
+            jnp.save(os.path.join(save_path, "ticks.npy"), ticks)
             jnp.save(os.path.join(save_path, "grid_ys.npy"), grid_ys)
-            if grid_xs.shape[0] == 1:
-                tmp = jnp.dstack(jnp.meshgrid(*grid_xs)).flatten()
+            if ticks.shape[0] == 1:
+                grid_xs = ticks.ravel()
             else:
-                tmp = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
-            objective_function = objective_functions.MeshGridObjectiveFunction(tmp, grid_ys.flatten())
+                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(-1, ticks.shape[0])
+            objective_function = objective_functions.MeshGridObjectiveFunction(grid_xs, grid_ys.ravel())
         else:
             if arguments.objective_function == "univariate":
                 objective_function = objective_functions.UnivariateObjectiveFunction()
@@ -249,14 +249,11 @@ if __name__ == "__main__":
             gaussian_process.get_mean_and_std, static_argnums=(0,)
         )
 
-        if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):
-            ticks = tuple(np.array(grid_xs[i])
-                          for i in range(grid_xs.shape[0]))
-            
-            if grid_xs.shape[0] == 1:
-                grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).flatten()
+        if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):            
+            if ticks.shape[0] == 1:
+                grid_xs = ticks.ravel()
             else:
-                grid_xs = jnp.dstack(jnp.meshgrid(*grid_xs)).reshape(-1, grid_xs.shape[0])
+                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(-1, ticks.shape[0])
 
             unsampled_indices = list(range(grid_xs.shape[0]))
             def sample_index(key):

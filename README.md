@@ -58,9 +58,9 @@ Run this command to generate the MNIST dataset:
 ```
 ./scripts/make_data.sh
 ```
-Run this command to generate the results:
+Run this command to generate the results, passing `gpu` or `cpu` as the first argument to specify the device to use:
 ```
-./scripts/run_experiments.sh
+./scripts/run_experiments.sh gpu
 ```
 To export the 3D results to be visualised using VTK via something like Paraview:
 ```
@@ -72,7 +72,7 @@ Run this command to generate the MNIST dataset:
 ```
 sbatch --workdir=$(pwd) ./scripts/make_data.sh
 ```
-Run this command to generate the results:
+Run this command to generate the results, passing `gpu` or `cpu` as the first argument to specify the device to use:
 ```
-sbatch --workdir=$(pwd) ./scripts/run_experiments.sh
+sbatch --workdir=$(pwd) ./scripts/run_experiments.sh gpu
 ```

@@ -87,9 +87,8 @@ if __name__ == "__main__":
                 for boundary in objective_function.dataset_bounds
             ],
             False,
-            indexing='ij',
         )
-        grid_xs = jnp.c_[*(jnp.ravel(x) for x in mesh_grid)]
+        grid_xs = jnp.stack(mesh_grid, axis=-1).reshape((-1, len(objective_function.dataset_bounds)))
 
         def fallback(grid_xs):
             @jax.jit

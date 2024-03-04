@@ -28,6 +28,7 @@ dev = ["pytest"]
 examples = [
   "tqdm",
   "jax-tqdm",
+  "pyvista",
 ]
 
 [tool.semantic_release]

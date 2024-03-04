@@ -35,7 +35,7 @@ class MeshGridObjectiveFunction(core.ObjectiveFunction):
             if self._xs.ndim == 1:
                 indices = jnp.nonzero(jnp.equal(self._xs, jnp.expand_dims(dense_xs, 1)))[1]
             else:
-                indices = jnp.nonzero(jnp.all(jnp.equal(self._xs, jnp.expand_dims(dense_xs, 1)), -1))[1]
+                indices = jnp.nonzero(jnp.equal(self._xs, dense_xs).all(-1))[-1]
         else:
             if self._xs.ndim == 1:
                 indices, = jnp.nonzero(jnp.equal(self._xs, dense_xs))

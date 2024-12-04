@@ -10,23 +10,41 @@ import optax
 from flax import linen as nn
 from flax.training import train_state
 import math
+import typing
+
+
+DEFAULT_HOST_URL = os.environ.get("MNIST_HOST_URL", "yann.lecun.com")
+DEFAULT_TRAIN_IMAGES_RELATIVE_URL = os.environ.get(
+    "MNIST_TRAIN_IMAGES_RELATIVE_URL", "/exdb/mnist/train-images-idx3-ubyte.gz"
+)
+DEFAULT_TRAIN_LABELS_RELATIVE_URL = os.environ.get(
+    "MNIST_TRAIN_LABELS_RELATIVE_URL", "/exdb/mnist/train-labels-idx1-ubyte.gz"
+)
+DEFAULT_TEST_IMAGES_RELATIVE_URL = os.environ.get(
+    "MNIST_TEST_IMAGES_RELATIVE_URL", "/exdb/mnist/t10k-images-idx3-ubyte.gz"
+)
+DEFAULT_TEST_LABELS_RELATIVE_URL = os.environ.get(
+    "MNIST_TEST_LABELS_RELATIVE_URL", "/exdb/mnist/t10k-labels-idx1-ubyte.gz"
+)
+
+TRAIN_IMAGES_FILE_NAME = "train-images-idx3-ubyte.gz"
+TRAIN_LABELS_FILE_NAME = "train-labels-idx1-ubyte.gz"
+TEST_IMAGES_FILE_NAME = "t10k-images-idx3-ubyte.gz"
+TEST_LABELS_FILE_NAME = "t10k-labels-idx1-ubyte.gz"
+
+
+class Urls(typing.NamedTuple):
+    base_url: str = DEFAULT_HOST_URL
+    train_images_relative_url: str = DEFAULT_TRAIN_IMAGES_RELATIVE_URL
+    train_labels_relative_url: str = DEFAULT_TRAIN_LABELS_RELATIVE_URL
+    test_images_relative_url: str = DEFAULT_TEST_IMAGES_RELATIVE_URL
+    test_labels_relative_url: str = DEFAULT_TEST_LABELS_RELATIVE_URL
 
 
 class MnistDataset:
-    # http://yann.lecun.com/exdb/mnist/
-    HOST_URL = "yann.lecun.com"
-    TRAIN_IMAGES_RELATIVE_URL = "/exdb/mnist/train-images-idx3-ubyte.gz"
-    TRAIN_LABELS_RELATIVE_URL = "/exdb/mnist/train-labels-idx1-ubyte.gz"
-    TEST_IMAGES_RELATIVE_URL = "/exdb/mnist/t10k-images-idx3-ubyte.gz"
-    TEST_LABELS_RELATIVE_URL = "/exdb/mnist/t10k-labels-idx1-ubyte.gz"
-
-    TRAIN_IMAGES_FILE_NAME = "train-images-idx3-ubyte.gz"
-    TRAIN_LABELS_FILE_NAME = "train-labels-idx1-ubyte.gz"
-    TEST_IMAGES_FILE_NAME = "t10k-images-idx3-ubyte.gz"
-    TEST_LABELS_FILE_NAME = "t10k-labels-idx1-ubyte.gz"
-
-    def __init__(self, cache_directory: str) -> None:
+    def __init__(self, cache_directory: str, urls: Urls | None = None) -> None:
         self._cache_directory = cache_directory
+        self._urls = urls or Urls()
 
     def download(self) -> None:
         if not os.path.exists(self._cache_directory):
@@ -34,22 +52,22 @@ class MnistDataset:
 
         for relative_url, file_name in [
             (
-                MnistDataset.TRAIN_IMAGES_RELATIVE_URL,
-                MnistDataset.TRAIN_IMAGES_FILE_NAME,
+                self._urls.train_images_relative_url,
+                TRAIN_IMAGES_FILE_NAME,
             ),
             (
-                MnistDataset.TRAIN_LABELS_RELATIVE_URL,
-                MnistDataset.TRAIN_LABELS_FILE_NAME,
+                self._urls.train_labels_relative_url,
+                TRAIN_LABELS_FILE_NAME,
             ),
-            (MnistDataset.TEST_IMAGES_RELATIVE_URL, MnistDataset.TEST_IMAGES_FILE_NAME),
-            (MnistDataset.TEST_LABELS_RELATIVE_URL, MnistDataset.TEST_LABELS_FILE_NAME),
+            (self._urls.test_images_relative_url, TEST_IMAGES_FILE_NAME),
+            (self._urls.test_labels_relative_url, TEST_LABELS_FILE_NAME),
         ]:
             file_path = os.path.join(self._cache_directory, file_name)
             if not os.path.exists(file_path):
                 self._download_file(relative_url, file_path)
 
     def _download_file(self, relative_url: str, file_path: str) -> None:
-        connection = http.client.HTTPConnection(MnistDataset.HOST_URL)
+        connection = http.client.HTTPSConnection(self._urls.base_url)
         try:
             connection.request("GET", relative_url)
             response = connection.getresponse()
@@ -65,14 +83,14 @@ class MnistDataset:
 
     def load_train_images(self, device: jax.Device) -> jax.Array:
         return self._load_images(
-            os.path.join(self._cache_directory, MnistDataset.TRAIN_IMAGES_FILE_NAME),
+            os.path.join(self._cache_directory, TRAIN_IMAGES_FILE_NAME),
             2051,
             device,
         )
 
     def load_test_images(self, device: jax.Device) -> jax.Array:
         return self._load_images(
-            os.path.join(self._cache_directory, MnistDataset.TEST_IMAGES_FILE_NAME),
+            os.path.join(self._cache_directory, TEST_IMAGES_FILE_NAME),
             2051,
             device,
         )
@@ -110,14 +128,14 @@ class MnistDataset:
 
     def load_train_labels(self, device: jax.Device) -> jax.Array:
         return self._load_labels(
-            os.path.join(self._cache_directory, MnistDataset.TRAIN_LABELS_FILE_NAME),
+            os.path.join(self._cache_directory, TRAIN_LABELS_FILE_NAME),
             2049,
             device,
         )
 
     def load_test_labels(self, device: jax.Device) -> jax.Array:
         return self._load_labels(
-            os.path.join(self._cache_directory, MnistDataset.TEST_LABELS_FILE_NAME),
+            os.path.join(self._cache_directory, TEST_LABELS_FILE_NAME),
             2049,
             device,
         )
@@ -261,7 +279,9 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
         if last_learning_rate is None:
             sgd_learning_rate = learning_rate
         else:
-            sgd_learning_rate = optax.linear_schedule(learning_rate, last_learning_rate, self._n_epochs)
+            sgd_learning_rate = optax.linear_schedule(
+                learning_rate, last_learning_rate, self._n_epochs
+            )
         tx = optax.sgd(sgd_learning_rate, momentum, accumulator_dtype=dtype)
         return train_state.TrainState.create(apply_fn=cnn.apply, params=params, tx=tx)
 
@@ -274,7 +294,9 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
         dtype: jnp.dtype,
     ) -> jax.Array:
         init_key, sample_key = jax.random.split(key)
-        state = self._create_train_state(init_key, learning_rate, momentum, last_learning_rate, dtype)
+        state = self._create_train_state(
+            init_key, learning_rate, momentum, last_learning_rate, dtype
+        )
 
         def train_step(
             i: int, val: tuple[jax.Array, train_state.TrainState]

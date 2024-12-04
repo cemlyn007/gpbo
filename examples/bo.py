@@ -1,31 +1,31 @@
+from typing import Any
+
 if __name__ == "__main__":
-    from gpbo import (
-        datasets,
-        gaussian_process,
-        objective_functions,
-        kernels,
-        render,
-        acquisition_functions,
-        transformers,
-        io,
-        experimental_engines
-    )
-
+    import argparse
     import math
-
-    import numpy as np
-
-    import platform
     import os
-    import jaxlib.xla_extension
-    import tqdm
+    import platform
+    import shutil
 
     import jax
-    import jax.numpy as jnp
-    import argparse
     import jax.experimental
+    import jax.numpy as jnp
+    import jaxlib.xla_extension
     import matplotlib.pyplot as plt
-    import shutil
+    import numpy as np
+    import tqdm
+
+    from gpbo import (
+        acquisition_functions,
+        datasets,
+        experimental_engines,
+        gaussian_process,
+        io,
+        kernels,
+        objective_functions,
+        render,
+        transformers,
+    )
 
     argument_parser = argparse.ArgumentParser(
         "Bayesian Optimization using a Gaussian Process Example"
@@ -86,8 +86,14 @@ if __name__ == "__main__":
         type=str,
         default="univariate",
         help="Objective function to use, options are univariate, six_hump_camel, mnist_1d, mnist_2d, mnist_3d and npy",
-        choices=["univariate", "six_hump_camel",
-                 "mnist_1d", "mnist_2d", "mnist_3d", "npy"],
+        choices=[
+            "univariate",
+            "six_hump_camel",
+            "mnist_1d",
+            "mnist_2d",
+            "mnist_3d",
+            "npy",
+        ],
     )
     argument_parser.add_argument(
         "--noisy_objective_function",
@@ -157,15 +163,24 @@ if __name__ == "__main__":
             else os.path.join(os.getcwd(), "results")
         )
         save_path = os.path.join(
-            save_path, "bo", arguments.objective_function, arguments.kernel, arguments.transform)
+            save_path,
+            "bo",
+            arguments.objective_function,
+            arguments.kernel,
+            arguments.transform,
+        )
     else:
         save_path = arguments.save_path
 
     if arguments.objective_function == "npy":
         if arguments.grid_xs_npy_path is None:
-            raise ValueError("grid_xs_npy_path must be specified if using npy objective function")
+            raise ValueError(
+                "grid_xs_npy_path must be specified if using npy objective function"
+            )
         if arguments.grid_ys_npy_path is None:
-            raise ValueError("grid_ys_npy_path must be specified if using npy objective function")
+            raise ValueError(
+                "grid_ys_npy_path must be specified if using npy objective function"
+            )
 
     os.makedirs(save_path, exist_ok=True)
 
@@ -185,8 +200,12 @@ if __name__ == "__main__":
             if ticks.shape[0] == 1:
                 grid_xs = ticks.ravel()
             else:
-                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(-1, ticks.shape[0])
-            objective_function = objective_functions.MeshGridObjectiveFunction(grid_xs, grid_ys.ravel())
+                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(
+                    -1, ticks.shape[0]
+                )
+            objective_function = objective_functions.MeshGridObjectiveFunction(
+                grid_xs, grid_ys.ravel()
+            )
         else:
             if arguments.objective_function == "univariate":
                 objective_function = objective_functions.UnivariateObjectiveFunction()
@@ -218,11 +237,21 @@ if __name__ == "__main__":
             )
 
         if arguments.acquisition_function == "expected_improvement":
-            acquisition_function = lambda mean, std, dataset: acquisition_functions.expected_improvement(
-                mean, std, jnp.min(dataset.ys)
-            )
+
+            def acquisition_function(
+                mean: jax.Array, std: jax.Array, dataset: datasets.Dataset
+            ):
+                return acquisition_functions.expected_improvement(
+                    mean, std, jnp.min(dataset.ys)
+                )
         elif arguments.acquisition_function == "lower_confidence_bound":
-            acquisition_function = lambda mean, std: acquisition_functions.lower_confidence_bound(mean, std, jnp.array(0.5))
+
+            def acquisition_function(
+                mean: jax.Array, std: jax.Array, dataset: Any = None
+            ):
+                return acquisition_functions.lower_confidence_bound(
+                    mean, std, jnp.array(0.5)
+                )
         else:
             raise ValueError(
                 f"Unknown acquisition function: {arguments.acquisition_function}"
@@ -257,9 +286,16 @@ if __name__ == "__main__":
             None: transformers.Identity,
         }[arguments.transform]()
 
-        if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):
-            indices = jax.random.randint(jax.random.PRNGKey(0), (arguments.initial_dataset_size, ticks.shape[0]), 0, ticks.shape[1])
-            xs = jnp.take_along_axis(ticks, indices.T, axis=1).T # Sketchy
+        if isinstance(
+            objective_function, objective_functions.MeshGridObjectiveFunction
+        ):
+            indices = jax.random.randint(
+                jax.random.PRNGKey(0),
+                (arguments.initial_dataset_size, ticks.shape[0]),
+                0,
+                ticks.shape[1],
+            )
+            xs = jnp.take_along_axis(ticks, indices.T, axis=1).T  # Sketchy
             if len(objective_function.dataset_bounds) == 1:
                 xs = jnp.reshape(xs, (arguments.initial_dataset_size,))
             ys = grid_ys[*indices.T]
@@ -267,8 +303,10 @@ if __name__ == "__main__":
             if ticks.shape[0] == 1:
                 grid_xs = ticks.ravel()
             else:
-                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(-1, ticks.shape[0])
-            
+                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(
+                    -1, ticks.shape[0]
+                )
+
             candidates = grid_xs
         else:
             xs = objective_functions.utils.sample(
@@ -276,16 +314,17 @@ if __name__ == "__main__":
                 arguments.initial_dataset_size,
                 objective_function.dataset_bounds,
             )
-            xs_args = tuple(xs[:, i] for i in range(
-                xs.shape[1])) if xs.ndim > 1 else (xs,)
+            xs_args = (
+                tuple(xs[:, i] for i in range(xs.shape[1])) if xs.ndim > 1 else (xs,)
+            )
             try:
                 ys = objective_function.evaluate(jax.random.PRNGKey(0), *xs_args)
             except jaxlib.xla_extension.XlaRuntimeError:
                 ys = jnp.concatenate(
                     [
                         objective_function.evaluate(
-                            jax.random.PRNGKey(
-                                0), *(arg[ii: ii + 1] for arg in xs_args)
+                            jax.random.PRNGKey(0),
+                            *(arg[ii : ii + 1] for arg in xs_args),
                         )
                         for ii in range(arguments.initial_dataset_size)
                     ]
@@ -301,7 +340,8 @@ if __name__ == "__main__":
             ticks = tuple(
                 np.asarray(
                     objective_functions.utils.get_ticks(
-                        boundary, arguments.plot_resolution)
+                        boundary, arguments.plot_resolution
+                    )
                 )
                 for boundary in objective_function.dataset_bounds
             )
@@ -319,7 +359,7 @@ if __name__ == "__main__":
                         objective_function.evaluate(
                             jax.random.PRNGKey(0),
                             *(
-                                grid_xs[ii: ii + 1, iii]
+                                grid_xs[ii : ii + 1, iii]
                                 for iii in range(len(objective_function.dataset_bounds))
                             ),
                         )
@@ -331,8 +371,8 @@ if __name__ == "__main__":
                     ]
                 )
                 grid_ys = grid_ys.reshape(
-                    (arguments.plot_resolution,) *
-                    len(objective_function.dataset_bounds)
+                    (arguments.plot_resolution,)
+                    * len(objective_function.dataset_bounds)
                 )
 
             jnp.save(os.path.join(save_path, "grid_xs.npy"), ticks)
@@ -347,12 +387,21 @@ if __name__ == "__main__":
             assert xs.shape == (arguments.initial_dataset_size,)
             assert ys.shape == (arguments.initial_dataset_size,)
         else:
-            assert grid_xs.shape == (arguments.plot_resolution **
-                                     len(objective_function.dataset_bounds), len(objective_function.dataset_bounds))
-            assert grid_ys.shape == (arguments.plot_resolution,) * len(objective_function.dataset_bounds)
-            assert candidates.shape == (arguments.plot_resolution **
-                                        len(objective_function.dataset_bounds), len(objective_function.dataset_bounds))
-            assert xs.shape == (arguments.initial_dataset_size, len(objective_function.dataset_bounds))
+            assert grid_xs.shape == (
+                arguments.plot_resolution ** len(objective_function.dataset_bounds),
+                len(objective_function.dataset_bounds),
+            )
+            assert grid_ys.shape == (arguments.plot_resolution,) * len(
+                objective_function.dataset_bounds
+            )
+            assert candidates.shape == (
+                arguments.plot_resolution ** len(objective_function.dataset_bounds),
+                len(objective_function.dataset_bounds),
+            )
+            assert xs.shape == (
+                arguments.initial_dataset_size,
+                len(objective_function.dataset_bounds),
+            )
             assert ys.shape == (arguments.initial_dataset_size,)
 
         dataset = datasets.Dataset(xs, ys)
@@ -364,8 +413,9 @@ if __name__ == "__main__":
 
         tried_candidate_indices = []
 
-        multi_optimize = jax.jit(gaussian_process.multi_optimize,
-                                 static_argnums=(0, 3, 4, 6, 7, 8))
+        multi_optimize = jax.jit(
+            gaussian_process.multi_optimize, static_argnums=(0, 3, 4, 6, 7, 8)
+        )
         get_mean_and_std = jax.jit(
             gaussian_process.get_mean_and_std, static_argnums=(0,)
         )
@@ -375,8 +425,12 @@ if __name__ == "__main__":
         cpu_device = jax.devices("cpu")[0]
         util_device = jax.devices()[0]
 
-        dynamic_get_mean_and_std = experimental_engines.DynamicGetMeanAndStd(get_mean_and_std, 100000, util_device, cpu_device)
-        utility_function = experimental_engines.Utility(acquisition_function, 100000, util_device, cpu_device)
+        dynamic_get_mean_and_std = experimental_engines.DynamicGetMeanAndStd(
+            get_mean_and_std, 100000, util_device, cpu_device
+        )
+        utility_function = experimental_engines.Utility(
+            acquisition_function, 100000, util_device, cpu_device
+        )
 
         min_y_figure = plt.figure(tight_layout=True, figsize=(4, 4))
         figure = plt.figure(tight_layout=True, figsize=(12, 4))
@@ -385,15 +439,32 @@ if __name__ == "__main__":
                 jax.clear_caches()
 
                 if arguments.optimizer_random_starts > 0:
-                    optimize_keys = jax.random.split(jax.random.PRNGKey(i), arguments.optimizer_random_starts * 3)
-                    optimize_keys = jnp.reshape(optimize_keys, (arguments.optimizer_random_starts, 3, -1))
-                    optimize_states = [state] + [kernels.State(
-                        jax.random.uniform(keys[0], minval=bounds[0].log_amplitude, maxval=bounds[1].log_amplitude),
-                        jax.random.uniform(keys[1], minval=bounds[0].log_length_scale,
-                                           maxval=bounds[1].log_length_scale),
-                        jax.random.uniform(keys[2], minval=bounds[0].log_noise_scale,
-                                           maxval=bounds[1].log_noise_scale),
-                    ) for keys in optimize_keys]
+                    optimize_keys = jax.random.split(
+                        jax.random.PRNGKey(i), arguments.optimizer_random_starts * 3
+                    )
+                    optimize_keys = jnp.reshape(
+                        optimize_keys, (arguments.optimizer_random_starts, 3, -1)
+                    )
+                    optimize_states = [state] + [
+                        kernels.State(
+                            jax.random.uniform(
+                                keys[0],
+                                minval=bounds[0].log_amplitude,
+                                maxval=bounds[1].log_amplitude,
+                            ),
+                            jax.random.uniform(
+                                keys[1],
+                                minval=bounds[0].log_length_scale,
+                                maxval=bounds[1].log_length_scale,
+                            ),
+                            jax.random.uniform(
+                                keys[2],
+                                minval=bounds[0].log_noise_scale,
+                                maxval=bounds[1].log_noise_scale,
+                            ),
+                        )
+                        for keys in optimize_keys
+                    ]
                 else:
                     optimize_states = [state]
                 print(i, len(optimize_states))
@@ -421,7 +492,11 @@ if __name__ == "__main__":
                         None if dataset_center is None else dataset_center.xs,
                         None if dataset_scale is None else dataset_scale.xs,
                     )
-                    transformed_mean, transformed_std = dynamic_get_mean_and_std.get_mean_and_std(kernel, state, transformed_dataset, transformed_candidates)
+                    transformed_mean, transformed_std = (
+                        dynamic_get_mean_and_std.get_mean_and_std(
+                            kernel, state, transformed_dataset, transformed_candidates
+                        )
+                    )
                     candidate_utilities = utility_function.get_candidate_utilities(
                         transformed_mean,
                         transformed_std,
@@ -448,7 +523,9 @@ if __name__ == "__main__":
                 if len(objective_function.dataset_bounds) == 1:
                     xs_args = (selected_candidate_xs,)
                 else:
-                    selected_candidate_xs = jnp.expand_dims(selected_candidate_xs, axis=0)
+                    selected_candidate_xs = jnp.expand_dims(
+                        selected_candidate_xs, axis=0
+                    )
                     xs_args = tuple(
                         selected_candidate_xs[:, i]
                         for i in range(selected_candidate_xs.shape[1])
@@ -460,20 +537,27 @@ if __name__ == "__main__":
                 selected_candidate_ys = objective_function.evaluate(key, *xs_args)
 
                 if len(objective_function.dataset_bounds) == 1:
-                    selected_candidate_xs = jnp.expand_dims(selected_candidate_xs, axis=0)
-                    selected_candidate_ys = jnp.expand_dims(selected_candidate_ys, axis=0)
+                    selected_candidate_xs = jnp.expand_dims(
+                        selected_candidate_xs, axis=0
+                    )
+                    selected_candidate_ys = jnp.expand_dims(
+                        selected_candidate_ys, axis=0
+                    )
 
                 if len(objective_function.dataset_bounds) == 1:
-                    assert selected_candidate_xs.shape == (len(objective_function.dataset_bounds),)
+                    assert selected_candidate_xs.shape == (
+                        len(objective_function.dataset_bounds),
+                    )
                 else:
-                    assert selected_candidate_xs.shape == (1, len(objective_function.dataset_bounds))
+                    assert selected_candidate_xs.shape == (
+                        1,
+                        len(objective_function.dataset_bounds),
+                    )
                 assert selected_candidate_ys.shape == (1,)
 
                 dataset = dataset._replace(
-                    xs=jnp.concatenate(
-                        [dataset.xs, selected_candidate_xs], axis=0),
-                    ys=jnp.concatenate(
-                        [dataset.ys, selected_candidate_ys], axis=0),
+                    xs=jnp.concatenate([dataset.xs, selected_candidate_xs], axis=0),
+                    ys=jnp.concatenate([dataset.ys, selected_candidate_ys], axis=0),
                 )
                 (
                     transformed_dataset,
@@ -481,15 +565,17 @@ if __name__ == "__main__":
                     dataset_scale,
                 ) = transformer.transform_dataset(dataset)
 
-                transformed_mean, transformed_std = dynamic_get_mean_and_std.get_mean_and_std(
-                    kernel,
-                    state,
-                    transformed_dataset,
-                    transformer.transform_values(
-                        candidates,
-                        None if dataset_center is None else dataset_center.xs,
-                        None if dataset_scale is None else dataset_scale.xs,
-                    ),
+                transformed_mean, transformed_std = (
+                    dynamic_get_mean_and_std.get_mean_and_std(
+                        kernel,
+                        state,
+                        transformed_dataset,
+                        transformer.transform_values(
+                            candidates,
+                            None if dataset_center is None else dataset_center.xs,
+                            None if dataset_scale is None else dataset_scale.xs,
+                        ),
+                    )
                 )
 
                 mean = transformer.inverse_transform_values(
@@ -545,7 +631,9 @@ if __name__ == "__main__":
                     )
                 min_y_figure.clear()
                 ax = min_y_figure.add_subplot()
-                ax.plot([dataset.ys[:i].min() for i in range(1, dataset.ys.shape[0] + 1)])
+                ax.plot(
+                    [dataset.ys[:i].min() for i in range(1, dataset.ys.shape[0] + 1)]
+                )
                 step_save_path = os.path.join(save_path, str(i))
                 if not os.path.exists(step_save_path):
                     os.makedirs(step_save_path, exist_ok=True)
@@ -558,9 +646,17 @@ if __name__ == "__main__":
                 )
                 np.save(os.path.join(step_save_path, "mean.npy"), mean)
                 np.save(os.path.join(step_save_path, "std.npy"), std)
-                jnp.save(os.path.join(step_save_path, "utility.npy"),
-                         np_candidate_utilities)
-                for filename in ["figure.png", "min_y_figure.png", "dataset.csv", "mean.npy", "std.npy", "utility.npy"]:
+                jnp.save(
+                    os.path.join(step_save_path, "utility.npy"), np_candidate_utilities
+                )
+                for filename in [
+                    "figure.png",
+                    "min_y_figure.png",
+                    "dataset.csv",
+                    "mean.npy",
+                    "std.npy",
+                    "utility.npy",
+                ]:
                     shutil.copyfile(
                         os.path.join(step_save_path, filename),
                         os.path.join(save_path, filename),

@@ -1,14 +1,16 @@
 if __name__ == "__main__":
+    import argparse
     import os
-    from gpbo import objective_functions
+    import platform
+
+    import jax.experimental
     import jax.numpy as jnp
     import jax.random
-    import jax.experimental
-    import numpy as np
-    import argparse
     import jax_tqdm
-    import platform
     import jaxlib.xla_extension
+    import numpy as np
+
+    from gpbo import objective_functions
 
     argument_parser = argparse.ArgumentParser("Mesh grid data generator")
 
@@ -88,12 +90,13 @@ if __name__ == "__main__":
             ],
             False,
         )
-        grid_xs = jnp.stack(mesh_grid, axis=-1).reshape((-1, len(objective_function.dataset_bounds)))
+        grid_xs = jnp.stack(mesh_grid, axis=-1).reshape(
+            (-1, len(objective_function.dataset_bounds))
+        )
 
         def fallback(grid_xs):
             @jax.jit
             def evaluate(xs: jax.Array) -> jax.Array:
-
                 @jax_tqdm.loop_tqdm(len(grid_xs))
                 def body_fun(i, val):
                     return val.at[i].set(

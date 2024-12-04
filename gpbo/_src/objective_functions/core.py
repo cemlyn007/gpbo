@@ -1,6 +1,7 @@
-import jax
 import abc
 import typing
+
+import jax
 import matplotlib.axes
 
 

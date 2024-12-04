@@ -1,17 +1,18 @@
-from gpbo._src.objective_functions import core
+import gzip
+import http.client
+import math
+import os
+import typing
+
 import jax.numpy as jnp
 import jax.random
-import matplotlib.axes
 import jax.typing
-import http.client
-import os
-import gzip
+import matplotlib.axes
 import optax
 from flax import linen as nn
 from flax.training import train_state
-import math
-import typing
 
+from gpbo._src.objective_functions import core
 
 DEFAULT_HOST_URL = os.environ.get("MNIST_HOST_URL", "yann.lecun.com")
 DEFAULT_TRAIN_IMAGES_RELATIVE_URL = os.environ.get(
@@ -258,11 +259,19 @@ class MnistObjectiveFunction(core.ObjectiveFunction):
                 ).reshape(learning_rates.shape)
             else:
                 return jax.vmap(self._single_evaluate, in_axes=(0, 0, 0, None, None))(
-                    keys, learning_rates.flatten(), momentums.flatten(), None, dtype  # type: ignore
+                    keys,
+                    learning_rates.flatten(),
+                    momentums.flatten(),
+                    None,
+                    dtype,  # type: ignore
                 ).reshape(learning_rates.shape)
         else:
             return jax.vmap(self._single_evaluate, in_axes=(0, 0, None, None, None))(
-                keys, learning_rates.flatten(), None, None, dtype  # type: ignore
+                keys,
+                learning_rates.flatten(),
+                None,
+                None,
+                dtype,  # type: ignore
             ).reshape(learning_rates.shape)
 
     def _create_train_state(

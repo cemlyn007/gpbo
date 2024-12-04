@@ -1,9 +1,11 @@
 from typing import Iterable
+
 import jax
 import jax.numpy as jnp
 import jax.random
-from gpbo._src.objective_functions import core
 import jax.typing
+
+from gpbo._src.objective_functions import core
 
 
 def sample(
@@ -52,7 +54,7 @@ def get_ticks(
 
 
 def get_mesh_grid(
-    boundary_ticks: Iterable[tuple[core.Boundary, int]], sparse: bool, indexing='xy'
+    boundary_ticks: Iterable[tuple[core.Boundary, int]], sparse: bool, indexing="xy"
 ) -> list[jax.Array]:
     """Note that when dealing with integer dtypes, the number of points is not guaranteed to be respected."""
     grid_points = (

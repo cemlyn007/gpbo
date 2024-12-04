@@ -1,26 +1,28 @@
 if __name__ == "__main__":
+    import argparse
+    import math
     import os
-    from gpbo import (
-        gaussian_process,
-        objective_functions,
-        kernels,
-        render,
-        datasets,
-        transformers,
-        io,
-        experimental_engines
-    )
+    import platform
+    import shutil
+
+    import jax.experimental
     import jax.numpy as jnp
     import jax.random
-    import jax.experimental
-    import numpy as np
-    import math
-    import matplotlib.pyplot as plt
-    import argparse
-    import tqdm
-    import platform
     import jaxlib.xla_extension
-    import shutil
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import tqdm
+
+    from gpbo import (
+        datasets,
+        experimental_engines,
+        gaussian_process,
+        io,
+        kernels,
+        objective_functions,
+        render,
+        transformers,
+    )
 
     argument_parser = argparse.ArgumentParser("Gaussian Process Example")
 
@@ -78,7 +80,14 @@ if __name__ == "__main__":
         type=str,
         default="univariate",
         help="Objective function to use, options are univariate, six_hump_camel, mnist_1d, mnist_2d and npy",
-        choices=["univariate", "six_hump_camel", "mnist_1d", "mnist_2d", "mnist_3d", "npy"],
+        choices=[
+            "univariate",
+            "six_hump_camel",
+            "mnist_1d",
+            "mnist_2d",
+            "mnist_3d",
+            "npy",
+        ],
     )
     argument_parser.add_argument(
         "--noisy_objective_function",
@@ -140,7 +149,12 @@ if __name__ == "__main__":
             if platform.system() == "Darwin"
             else os.path.join(os.getcwd(), "results")
         )
-        save_path = os.path.join(save_path, arguments.objective_function, arguments.kernel, arguments.transform)
+        save_path = os.path.join(
+            save_path,
+            arguments.objective_function,
+            arguments.kernel,
+            arguments.transform,
+        )
     else:
         save_path = arguments.save_path
 
@@ -195,8 +209,12 @@ if __name__ == "__main__":
             if ticks.shape[0] == 1:
                 grid_xs = ticks.ravel()
             else:
-                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(-1, ticks.shape[0])
-            objective_function = objective_functions.MeshGridObjectiveFunction(grid_xs, grid_ys.ravel())
+                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(
+                    -1, ticks.shape[0]
+                )
+            objective_function = objective_functions.MeshGridObjectiveFunction(
+                grid_xs, grid_ys.ravel()
+            )
         else:
             if arguments.objective_function == "univariate":
                 objective_function = objective_functions.UnivariateObjectiveFunction()
@@ -249,18 +267,25 @@ if __name__ == "__main__":
             gaussian_process.get_mean_and_std, static_argnums=(0,)
         )
 
-        if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):            
+        if isinstance(
+            objective_function, objective_functions.MeshGridObjectiveFunction
+        ):
             if ticks.shape[0] == 1:
                 grid_xs = ticks.ravel()
             else:
-                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(-1, ticks.shape[0])
+                grid_xs = jnp.stack(jnp.meshgrid(*ticks), axis=-1).reshape(
+                    -1, ticks.shape[0]
+                )
 
             unsampled_indices = list(range(grid_xs.shape[0]))
+
             def sample_index(key):
-                index = jax.random.choice(key, jnp.array(unsampled_indices), (), replace=False)
+                index = jax.random.choice(
+                    key, jnp.array(unsampled_indices), (), replace=False
+                )
                 unsampled_indices.remove(index.item())
                 return index.item()
-            
+
             keys = jax.random.split(key, arguments.initial_dataset_size)
             indices = jnp.array([sample_index(key) for key in keys])
 
@@ -276,11 +301,15 @@ if __name__ == "__main__":
             )
             ticks = tuple(
                 np.asarray(
-                    objective_functions.utils.get_ticks(boundary, arguments.plot_resolution)
+                    objective_functions.utils.get_ticks(
+                        boundary, arguments.plot_resolution
+                    )
                 )
                 for boundary in objective_function.dataset_bounds
             )
-            grid_xs = jnp.dstack(mesh_grid).reshape(-1, len(objective_function.dataset_bounds))
+            grid_xs = jnp.dstack(mesh_grid).reshape(
+                -1, len(objective_function.dataset_bounds)
+            )
 
             try:
                 grid_ys = np.asarray(
@@ -304,7 +333,8 @@ if __name__ == "__main__":
                     ]
                 )
                 grid_ys = grid_ys.reshape(
-                    (arguments.plot_resolution,) * len(objective_function.dataset_bounds)
+                    (arguments.plot_resolution,)
+                    * len(objective_function.dataset_bounds)
                 )
 
             jnp.save(os.path.join(save_path, "grid_xs.npy"), ticks)
@@ -317,7 +347,9 @@ if __name__ == "__main__":
                 objective_function.dataset_bounds,
             )
 
-            xs_args = tuple(xs[:, i] for i in range(xs.shape[1])) if xs.ndim > 1 else (xs,)
+            xs_args = (
+                tuple(xs[:, i] for i in range(xs.shape[1])) if xs.ndim > 1 else (xs,)
+            )
             try:
                 ys = objective_function.evaluate(evaluate_key, *xs_args)
             except jaxlib.xla_extension.XlaRuntimeError:
@@ -330,8 +362,6 @@ if __name__ == "__main__":
                     ]
                 )
 
-        
-
         negative_log_marginal_likelihoods_xs = []
         negative_log_marginal_likelihoods = []
 
@@ -341,11 +371,15 @@ if __name__ == "__main__":
 
         util_device = jax.devices()[0]
 
-        dynamic_get_mean_and_std = experimental_engines.DynamicGetMeanAndStd(get_mean_and_std, 100000, util_device, cpu_device)
+        dynamic_get_mean_and_std = experimental_engines.DynamicGetMeanAndStd(
+            get_mean_and_std, 100000, util_device, cpu_device
+        )
 
         for i in range(arguments.iterations):
             key, sample_key, evaluate_key = jax.random.split(key, 3)
-            if isinstance(objective_function, objective_functions.MeshGridObjectiveFunction):
+            if isinstance(
+                objective_function, objective_functions.MeshGridObjectiveFunction
+            ):
                 xs = grid_xs[sample_index(sample_key)]
                 if len(xs.shape) == 0:
                     xs = jnp.expand_dims(xs, 0)
@@ -355,7 +389,14 @@ if __name__ == "__main__":
                     1,
                     objective_function.dataset_bounds,
                 )
-                xs = jnp.reshape(xs, (len(objective_function.dataset_bounds,)))
+                xs = jnp.reshape(
+                    xs,
+                    (
+                        len(
+                            objective_function.dataset_bounds,
+                        )
+                    ),
+                )
 
             assert xs.shape == (len(objective_function.dataset_bounds),)
 
@@ -406,15 +447,17 @@ if __name__ == "__main__":
                 )
             )
 
-            transformed_mean, transformed_std = dynamic_get_mean_and_std.get_mean_and_std(
-                kernel,
-                state,
-                transformed_dataset,
-                transformer.transform_values(
-                    grid_xs,
-                    None if dataset_center is None else dataset_center.xs,
-                    None if dataset_scale is None else dataset_scale.xs,
-                ),
+            transformed_mean, transformed_std = (
+                dynamic_get_mean_and_std.get_mean_and_std(
+                    kernel,
+                    state,
+                    transformed_dataset,
+                    transformer.transform_values(
+                        grid_xs,
+                        None if dataset_center is None else dataset_center.xs,
+                        None if dataset_scale is None else dataset_scale.xs,
+                    ),
+                )
             )
 
             mean = transformer.inverse_transform_values(
@@ -458,7 +501,7 @@ if __name__ == "__main__":
             step_save_path = os.path.join(save_path, str(i))
             if not os.path.exists(step_save_path):
                 os.makedirs(step_save_path, exist_ok=True)
-            
+
             figure.savefig(os.path.join(step_save_path, "figure.png"))
             io.write_csv(
                 dataset,

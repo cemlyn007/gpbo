@@ -1,7 +1,8 @@
 import jax
-from gpbo._src import kernels, datasets
 import jax.numpy as jnp
 import jaxopt
+
+from gpbo._src import datasets, kernels
 
 
 def get_log_marginal_likelihood(
@@ -23,7 +24,11 @@ def get_log_marginal_likelihood(
     # Challenges for Gaussian processes - Imperial - Slide 5, Equation 7:
     L, lower = jax.scipy.linalg.cho_factor(covariance_matrix, lower=True)
     x = jax.scipy.linalg.solve_triangular(L, dataset.ys, lower=lower)
-    part_a = -0.5 * dataset.ys.T @ jax.scipy.linalg.solve_triangular(L, x, lower=lower, trans='T')
+    part_a = (
+        -0.5
+        * dataset.ys.T
+        @ jax.scipy.linalg.solve_triangular(L, x, lower=lower, trans="T")
+    )
     part_b = -jnp.sum(jnp.log(jnp.diagonal(L)))
     return part_a + part_b
 
@@ -58,7 +63,7 @@ def get_gradient_log_marginal_likelihood(
             2 * noise,
         )
     elif kernel is kernels.matern:
-        tmp = jnp.divide(jnp.sqrt(3 * squared_distances),  length_scale)
+        tmp = jnp.divide(jnp.sqrt(3 * squared_distances), length_scale)
         dkernel_dstate = kernels.State(
             2 * covariance_matrix,
             kernels.amplitude_squared(state) * jnp.square(tmp) * jnp.exp(-tmp),
@@ -72,7 +77,10 @@ def get_gradient_log_marginal_likelihood(
         lambda dkernel_dtheta: (
             0.5
             * jnp.trace(
-                (alpha @ alpha.T @ dkernel_dtheta - jax.scipy.linalg.cho_solve(L, dkernel_dtheta))
+                (
+                    alpha @ alpha.T @ dkernel_dtheta
+                    - jax.scipy.linalg.cho_solve(L, dkernel_dtheta)
+                )
             )
         ),
         dkernel_dstate,
@@ -339,11 +347,19 @@ def multi_optimize(
         )
         log_marginal_likelihood = get_log_marginal_likelihood(kernel, state, dataset)
         if verbose:
-            jax.debug.print("i={i}, log_marginal_likelihood={log_marginal_likelihood}\n", i=i, log_marginal_likelihood=log_marginal_likelihood)
+            jax.debug.print(
+                "i={i}, log_marginal_likelihood={log_marginal_likelihood}\n",
+                i=i,
+                log_marginal_likelihood=log_marginal_likelihood,
+            )
         better = log_marginal_likelihood > best_log_marginal_likelihood
         ok_and_better = jnp.logical_and(ok, better)
-        best_state = jax.tree_map(lambda x, y: jnp.where(ok_and_better, x, y), state, best_state)
-        best_log_marginal_likelihood = jnp.where(ok_and_better, log_marginal_likelihood, best_log_marginal_likelihood)
+        best_state = jax.tree_map(
+            lambda x, y: jnp.where(ok_and_better, x, y), state, best_state
+        )
+        best_log_marginal_likelihood = jnp.where(
+            ok_and_better, log_marginal_likelihood, best_log_marginal_likelihood
+        )
         assert isinstance(best_state, kernels.State)
         assert isinstance(best_log_marginal_likelihood, jax.Array)
         return (best_state, best_log_marginal_likelihood)

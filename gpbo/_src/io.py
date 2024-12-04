@@ -1,6 +1,8 @@
 import csv
-import numpy as np
+
 import jax.numpy as jnp
+import numpy as np
+
 from gpbo._src import datasets
 
 
@@ -36,6 +38,7 @@ def write_csv(dataset: datasets.Dataset, file_path: str) -> None:
         csv_writer = csv.writer(file)
         csv_writer.writerows(rows)
 
+
 def write_mesh_grid_csv(mesh_grid: np.ndarray, file_path: str) -> None:
     rows = []
     for row in mesh_grid:
@@ -44,4 +47,3 @@ def write_mesh_grid_csv(mesh_grid: np.ndarray, file_path: str) -> None:
     with open(file_path, "w", newline="") as file:
         csv_writer = csv.writer(file)
         csv_writer.writerows(rows)
-

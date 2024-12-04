@@ -1,7 +1,7 @@
-import pytest
-from gpbo._src import datasets
-from gpbo._src import io
 import jax.numpy as jnp
+import pytest
+
+from gpbo._src import datasets, io
 
 
 @pytest.fixture

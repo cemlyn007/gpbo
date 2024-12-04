@@ -1,8 +1,10 @@
-from gpbo._src import kernels
+from typing import Generator
+
+import jax.experimental
 import jax.numpy as jnp
 import pytest
-from typing import Generator
-import jax.experimental
+
+from gpbo._src import kernels
 
 
 def is_symmetric(matrix: jax.Array) -> bool:

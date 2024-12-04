@@ -1,7 +1,9 @@
+import abc
+
 import jax
 import jax.numpy as jnp
+
 from gpbo import datasets, scalers
-import abc
 
 
 class Transformer(abc.ABC):

@@ -1,7 +1,8 @@
 import typing
 from typing import Callable
-import jax.numpy as jnp
+
 import jax
+import jax.numpy as jnp
 import jax.typing
 
 
@@ -53,5 +54,7 @@ def matern(state: State, xs: jax.Array, ys: jax.Array) -> jax.Array:
         xs = jnp.expand_dims(xs, axis=-1)
     if ys.ndim == 1:
         ys = jnp.expand_dims(ys, axis=-1)
-    tmp_calc = jnp.sqrt(3 * euclidean_squared_distance_matrix(xs, ys)) / length_scale(state)
+    tmp_calc = jnp.sqrt(3 * euclidean_squared_distance_matrix(xs, ys)) / length_scale(
+        state
+    )
     return amplitude_squared(state) * (1 + tmp_calc) * jnp.exp(-tmp_calc)

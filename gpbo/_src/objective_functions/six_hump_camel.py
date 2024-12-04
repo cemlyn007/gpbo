@@ -1,9 +1,10 @@
-from gpbo._src.objective_functions import core
 import jax
 import jax.numpy as jnp
 import jax.random
-import matplotlib.axes
 import jax.typing
+import matplotlib.axes
+
+from gpbo._src.objective_functions import core
 
 
 class SixHumpCamelObjectiveFunction(core.ObjectiveFunction):

@@ -1,6 +1,8 @@
-import jax.numpy as jnp
-import jax
 import typing
+
+import jax
+import jax.numpy as jnp
+
 from gpbo._src import scalers
 
 

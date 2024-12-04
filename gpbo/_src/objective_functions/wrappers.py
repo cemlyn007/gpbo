@@ -1,7 +1,8 @@
-from gpbo._src.objective_functions import core
 import jax
 import jax.numpy as jnp
 import matplotlib.axes
+
+from gpbo._src.objective_functions import core
 
 
 class DtypeCasterObjectiveFunction[T: core.ObjectiveFunction](core.ObjectiveFunction):

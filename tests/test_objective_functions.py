@@ -1,10 +1,12 @@
 from typing import Generator
-from gpbo._src import objective_functions
-import pytest
+
 import jax
 import jax.experimental
 import jax.random
 import matplotlib.pyplot as plt
+import pytest
+
+from gpbo._src import objective_functions
 
 
 @pytest.mark.parametrize("x64", [False, True])

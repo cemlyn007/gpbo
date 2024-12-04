@@ -1,20 +1,23 @@
+import abc
+
 import jax
 import jax.numpy as jnp
 import jax.random
-import abc
-import jax.typing
 import jax.scipy.stats.norm
-from gpbo._src import kernels
-from gpbo._src import gaussian_process
-from gpbo._src import datasets
+import jax.typing
+
+from gpbo._src import datasets, gaussian_process, kernels
 
 
 class AcquisitionFunction(abc.ABC):
     @abc.abstractmethod
-    def __call__(self, kernel: kernels.Kernel,
-                 state: kernels.State,
-                 dataset: datasets.Dataset,
-                 xs: jax.Array,) -> jax.Array:
+    def __call__(
+        self,
+        kernel: kernels.Kernel,
+        state: kernels.State,
+        dataset: datasets.Dataset,
+        xs: jax.Array,
+    ) -> jax.Array:
         "Compute the utility of the given points."
 
     @abc.abstractmethod
@@ -28,20 +31,24 @@ class AcquisitionFunction(abc.ABC):
         pass
 
 
-def expected_improvement(mean: jax.Array, std: jax.Array, min_y: jax.Array) -> jax.Array:
+def expected_improvement(
+    mean: jax.Array, std: jax.Array, min_y: jax.Array
+) -> jax.Array:
     gamma = (min_y - mean) / std
     utility = std * (
-        gamma * jax.scipy.stats.norm.cdf(gamma) +
-        jax.scipy.stats.norm.pdf(gamma)
+        gamma * jax.scipy.stats.norm.cdf(gamma) + jax.scipy.stats.norm.pdf(gamma)
     )
     return utility
 
 
 class ExpectedImprovement(AcquisitionFunction):
-    def __call__(self, kernel: kernels.Kernel,
-                 state: kernels.State,
-                 dataset: datasets.Dataset,
-                 xs: jax.Array) -> jax.Array:
+    def __call__(
+        self,
+        kernel: kernels.Kernel,
+        state: kernels.State,
+        dataset: datasets.Dataset,
+        xs: jax.Array,
+    ) -> jax.Array:
         mean, std = gaussian_process.get_mean_and_std(kernel, state, dataset, xs)
         return expected_improvement(mean, std, jnp.min(dataset.ys))
 
@@ -56,7 +63,9 @@ class ExpectedImprovement(AcquisitionFunction):
         return jnp.flip(jnp.argsort(utility))
 
 
-def lower_confidence_bound(mean: jax.Array, std: jax.Array, confidence_rate: jax.Array) -> jax.Array:
+def lower_confidence_bound(
+    mean: jax.Array, std: jax.Array, confidence_rate: jax.Array
+) -> jax.Array:
     return -1 * (mean - jnp.sqrt(confidence_rate) * std)
 
 
@@ -70,12 +79,14 @@ class LowerConfidenceBound(AcquisitionFunction):
             )
         self._confidence_rate = confidence_rate
 
-    def __call__(self, kernel: kernels.Kernel,
-                 state: kernels.State,
-                 dataset: datasets.Dataset,
-                 xs: jax.Array) -> jax.Array:
-        mean, std = gaussian_process.get_mean_and_std(
-            kernel, state, dataset, xs)
+    def __call__(
+        self,
+        kernel: kernels.Kernel,
+        state: kernels.State,
+        dataset: datasets.Dataset,
+        xs: jax.Array,
+    ) -> jax.Array:
+        mean, std = gaussian_process.get_mean_and_std(kernel, state, dataset, xs)
         utility = lower_confidence_bound(mean, std, self._confidence_rate)
         return utility
 

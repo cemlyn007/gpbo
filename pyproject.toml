@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "pre-commit"]
 examples = [
   "tqdm",
   "jax-tqdm",

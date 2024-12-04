@@ -1,9 +1,9 @@
-import pyvista
-import numpy as np
 import argparse
 
-if __name__ == "__main__":
+import numpy as np
+import pyvista
 
+if __name__ == "__main__":
     parser = argparse.ArgumentParser("Export 3D data to VTK")
     parser.add_argument(
         "--ticks_filepath",
@@ -42,15 +42,15 @@ if __name__ == "__main__":
     grid_ys = np.load(arguments.grid_ys_filepath)
 
     structured_grid = pyvista.StructuredGrid(*np.meshgrid(*ticks))
-    structured_grid["ys"] = grid_ys.ravel('F')
+    structured_grid["ys"] = grid_ys.ravel("F")
     if arguments.mean_filepath:
         mean = np.load(arguments.mean_filepath)
-        structured_grid["mean"] = mean.ravel('F')
+        structured_grid["mean"] = mean.ravel("F")
     if arguments.std_filepath:
         std = np.load(arguments.std_filepath)
-        structured_grid["std"] = std.ravel('F')
+        structured_grid["std"] = std.ravel("F")
     if arguments.utility_filepath:
         utility = np.load(arguments.utility_filepath)
-        structured_grid["utility"] = utility.ravel('F')
+        structured_grid["utility"] = utility.ravel("F")
 
     structured_grid.save(arguments.save_filepath)
